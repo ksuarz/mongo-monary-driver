@@ -2,6 +2,7 @@
 # Please see the included LICENSE.TXT and NOTICE.TXT for licensing information.
 
 import glob
+import os
 import platform
 import subprocess
 from distutils.core import setup, Command
@@ -11,7 +12,7 @@ from distutils.ccompiler import new_compiler
 DEBUG = False
 
 # TODO: New version number, presumably?
-VERSION = "0.2.3"
+VERSION = "0.2.3.1"
 
 # Hijack the build process by inserting specialized commands into
 # the list of build sub commands
