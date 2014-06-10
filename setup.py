@@ -3,12 +3,14 @@
 
 import glob
 import platform
+import subprocess
 from distutils.core import setup, Command
 from distutils.command.build import build
 from distutils.ccompiler import new_compiler
 
 DEBUG = False
 
+# TODO: New version number, presumably?
 VERSION = "0.2.3"
 
 # Hijack the build process by inserting specialized commands into
@@ -28,7 +30,7 @@ else:
 compiler = new_compiler(**compiler_kw)
 
 MONARY_DIR = "monary/"
-CMONGO_SRC = "mongodb-mongo-c-driver-74cc0b8/src/"
+CMONGO_SRC = "mongodb-mongo-c-driver-0.96.2/"
 CFLAGS = ["--std=c99", "-fPIC", "-O2"]
 
 if not DEBUG:
@@ -36,7 +38,7 @@ if not DEBUG:
 
 # I suspect I could be using the build_clib command for this, but don't know how.
 class BuildCMongoDriver(Command):
-    """Custom command to build the C Mongo driver."""
+    """Custom command to build the C Mongo driver. Relies on autotools."""
     description = "builds the C Mongo driver"
     user_options = [ ]
     def initialize_options(self):
@@ -44,10 +46,12 @@ class BuildCMongoDriver(Command):
     def finalize_options(self):
         pass
     def run(self):
-        CMONGO_UNITS = glob.glob(CMONGO_SRC + "*.c")
-        CMONGO_OBJECTS = [ f[:-2] + ".o" for f in CMONGO_UNITS ]
-        compiler.compile(CMONGO_UNITS, extra_preargs=CFLAGS, include_dirs=[CMONGO_SRC])
-        compiler.create_static_lib(CMONGO_OBJECTS, "mongo", CMONGO_SRC)
+        try:
+            os.chdir(CMONGO_SRC)
+            subprocess.call(["./configure", "--enable-static", "--without-documentation"])
+            subprocess.call(["make"])
+        finally:
+            os.chdir("..")
 
 class BuildCMonary(Command):
     """Custom command to build the cmonary library, static linking to the cmongo drivers,
@@ -60,9 +64,11 @@ class BuildCMonary(Command):
     def finalize_options(self):
         pass
     def run(self):
+        # TODO: Test for portability; specifically the directory specification.
+        # Might have to use os.sep.join(["path", "to", "dir"])
         compiler.compile([MONARY_DIR + "cmonary.c"],
                          extra_preargs=CFLAGS,
-                         include_dirs=[CMONGO_SRC])
+                         include_dirs=[CMONGO_SRC + "src/mongoc", CMONGO_SRC + "src/libbson/src/bson"])
         compiler.link_shared_lib([MONARY_DIR + "cmonary.o", CMONGO_SRC + "libmongo.a"],
                                  "cmonary", "monary", **linker_kw)
 
