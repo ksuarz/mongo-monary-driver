@@ -1,4 +1,4 @@
-// Monary - Copyright 2011-2013 David J. C. Beach
+// Monary - Copyright 2011-2014 David J. C. Beach
 // Please see the included LICENSE.TXT and NOTICE.TXT for licensing information.
 
 #include <stdlib.h>
@@ -58,38 +58,75 @@ typedef uint64_t UINT64;
 typedef float FLOAT32;
 typedef double FLOAT64;
 
-mongo_connection* monary_connect(const char* host,
-                                 int port)
+/**
+ * Makes a new connection to a MongoDB server. It also allows for
+ * authentication to a database using a username and password. This combines
+ * the old behaviors of monary_connect and monary_authenticate.
+ *
+ * A new feature is the options parameter, which allows you to specify extra
+ * options to the MongoDB connection URI.
+ *
+ * @param host The name of the host to connect to; if it is NULL, then it
+ * defaults to the default hostname.
+ * @param port The port to connect to on the host; if the port is 0, then it
+ * defaults to the default port number.
+ * @param db The database to connect to. If this is not specified but username
+ * and password credentials exist, then it defaults to the admin database. See
+ * mongoc_uri(7) for more information.
+ * @param user An optional username.
+ * @param pass A password for the user.
+ * @param options Additional options for the MongoDB connection URI.
+ *
+ * @return A pointer to a mongoc_client_t.
+ */
+mongoc_client_t* monary_connect(const char* host,
+                                int port,
+                                const char* db,
+                                const char* user,
+                                const char* pass,
+                                const char* options)
 {
-    if(host == NULL) { host = DEFAULT_MONGO_HOST; }
-    if(port == 0) { port = DEFAULT_MONGO_PORT; }
-    
-    mongo_connection* conn = (mongo_connection*) malloc(sizeof(mongo_connection));
-    
-    DEBUG("attempting connection to: '%s' port %i", options.host, options.port);
-    
-    mongo_conn_return conn_result = mongo_connect(conn, host, port);
-    
-    if(conn_result == mongo_conn_success) {
-        DEBUG("connected successfully");
-        return conn;
+    char* uri, *userpass;
+
+    if(host == NULL) {
+        host = DEFAULT_MONGO_HOST;
+    }
+    if(port == 0) {
+        port = DEFAULT_MONGO_PORT;
+    }
+    if(db == NULL) {
+        db
+    }
+    if(user || pass) {
+        userpass = asprintf(&userpass, "%s:%s@", user, pass);
     } else {
-        DEBUG("received mongo_connect error code: %i\n", conn_result);
+        userpass = (char*) calloc(1, sizeof(char));
+    }
+
+    char* uri;
+    asprintf(&uri, "mongodb://%s:%i/", host, port);
+
+    DEBUG("attepmpting connection to: '%s' port %i", options.host, options.port);
+
+    mongoc_client_t* client = mongoc_client_new(uri);
+
+    if(client) {
+        DEBUG("connected successfully");
+        return client;
+    } else {
+        DEBUG("an error occurred when attempting to connect to %s\n", uri);
         return NULL;
     }
+
+    // TODO
+    // Cleanup
+    free(userpass);
+    free(uri);
 }
 
-int monary_authenticate(mongo_connection* connection,
-                        const char* db,
-                        const char* user,
-                        const char* pass)
+void monary_disconnect(mongoc_client_t* client)
 {
-    return mongo_cmd_authenticate(connection, db, user, pass);
-}
-
-void monary_disconnect(mongo_connection* connection)
-{
-    mongo_destroy(connection);
+    mongoc_client_destroy(client)
 }
 
 typedef struct monary_column_item monary_column_item;
@@ -118,26 +155,12 @@ typedef struct monary_cursor {
 monary_column_data* monary_alloc_column_data(unsigned int num_columns,
                                              unsigned int num_rows)
 {
-    if(num_columns > 1024) { return NULL; }
-    monary_column_data* result = (monary_column_data*) malloc(sizeof(monary_column_data));
-    monary_column_item* columns = (monary_column_item*) calloc(num_columns, sizeof(monary_column_item));
-    result->num_columns = num_columns;
-    result->num_rows = num_rows;
-    result->columns = columns;
-
-    return result;
+    // TODO
 }
 
 int monary_free_column_data(monary_column_data* coldata)
 {
-    if(coldata == NULL || coldata->columns == NULL) { return 0; }
-    for(int i = 0; i < coldata->num_columns; i++) {
-        monary_column_item* col = coldata->columns + i;
-        if(col->field != NULL) { free(col->field); }
-    }
-    free(coldata->columns);
-    free(coldata);
-    return 1;
+    // TODO
 }
 
 int monary_set_column_item(monary_column_data* coldata,
@@ -148,26 +171,7 @@ int monary_set_column_item(monary_column_data* coldata,
                            void* storage,
                            unsigned char* mask)
 {
-    if(coldata == NULL) { return 0; }
-    if(colnum >= coldata->num_columns) { return 0; }
-    if(type == TYPE_UNDEFINED || type > LAST_TYPE) { return 0; }
-    if(storage == NULL) { return 0; }
-    if(mask == NULL) { return 0; }
-    
-    int len = strlen(field);
-    if(len > 1024) { return 0; }
-    
-    monary_column_item* col = coldata->columns + colnum;
-
-    col->field = (char*) malloc(len + 1);
-    strcpy(col->field, field);
-    
-    col->type = type;
-    col->type_arg = type_arg;
-    col->storage = storage;
-    col->mask = mask;
-
-    return 1;
+    // TODO
 }
 
 inline int monary_load_objectid_value(bson_iterator* bsonit,
@@ -175,16 +179,7 @@ inline int monary_load_objectid_value(bson_iterator* bsonit,
                                       monary_column_item* citem,
                                       int idx)
 {
-    if(type == bson_oid) {
-        OBJECTID* oid = bson_iterator_oid(bsonit);
-        OBJECTID* oidloc = ((OBJECTID*) citem->storage) + idx;
-        oidloc->ints[0] = oid->ints[0];
-        oidloc->ints[1] = oid->ints[1];
-        oidloc->ints[2] = oid->ints[2];
-        return 1;
-    } else {
-        return 0;
-    }
+    // TODO
 }
 
 inline int monary_load_bool_value(bson_iterator* bsonit,
@@ -192,9 +187,7 @@ inline int monary_load_bool_value(bson_iterator* bsonit,
                                   monary_column_item* citem,
                                   int idx)
 {
-    BOOL value = bson_iterator_bool(bsonit);
-    ((BOOL*) citem->storage)[idx] = value;
-    return 1;
+    // TODO
 }
 
 #define MONARY_DEFINE_NUM_LOADER(FUNCNAME, NUMTYPE, BSONFUNC)             \
