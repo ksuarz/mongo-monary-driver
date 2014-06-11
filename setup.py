@@ -12,7 +12,7 @@ from distutils.ccompiler import new_compiler
 DEBUG = False
 
 # TODO: New version number, presumably?
-VERSION = "0.2.3.1"
+VERSION = "0.2.3"
 
 # Hijack the build process by inserting specialized commands into
 # the list of build sub commands
@@ -20,6 +20,7 @@ build.sub_commands = [ ("build_cmongo", None), ("build_cmonary", None) ] + build
 
 # Platform specific stuff
 if platform.system() == 'Windows':
+    # TODO: Discuss this with David...
     compiler_kw = {'compiler' : 'mingw32'}
     linker_kw = {'libraries' : ['ws2_32']}
     so_target = 'cmonary.dll'
@@ -37,6 +38,10 @@ CFLAGS = ["--std=c99", "-fPIC", "-O2"]
 if not DEBUG:
     CFLAGS.append("-DNDEBUG")
 
+class BuildException(Exception):
+    """Indicates an error occurred while compiling from source."""
+    pass
+
 # I suspect I could be using the build_clib command for this, but don't know how.
 class BuildCMongoDriver(Command):
     """Custom command to build the C Mongo driver. Relies on autotools."""
@@ -49,8 +54,15 @@ class BuildCMongoDriver(Command):
     def run(self):
         try:
             os.chdir(CMONGO_SRC)
-            subprocess.call(["./configure", "--enable-static", "--without-documentation"])
-            subprocess.call(["make"])
+            subprocess.call(["pwd"])
+            status = subprocess.call(["./configure", "--enable-static", "--without-documentation"])
+            # TODO: What kind of exception do you want? Could just use regular old exception
+            if status != 0:
+                raise BuildException("configure script failed with exit status {0}.".format(status))
+
+            status = subprocess.call(["make"])
+            if status != 0:
+                raise BuildException("make failed with exit status {0}".format(status))
         finally:
             os.chdir("..")
 
