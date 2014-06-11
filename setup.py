@@ -1,7 +1,6 @@
 # Monary - Copyright 2011-2014 David J. C. Beach
 # Please see the included LICENSE.TXT and NOTICE.TXT for licensing information.
 
-import glob
 import os
 import platform
 import subprocess
@@ -53,8 +52,8 @@ class BuildCMongoDriver(Command):
         pass
     def run(self):
         try:
+            # chdir(2) should not fail except under exceptional circumstances (directory deleted, etc.)
             os.chdir(CMONGO_SRC)
-            subprocess.call(["pwd"])
             status = subprocess.call(["./configure", "--enable-static", "--without-documentation"])
             # TODO: What kind of exception do you want? Could just use regular old exception
             if status != 0:
