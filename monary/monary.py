@@ -32,6 +32,7 @@ def _load_cmonary_lib():
 
 _load_cmonary_lib()
 
+# TODO Array?
 CTYPE_CODES = {
     "P": c_void_p,    # pointer
     "S": c_char_p,    # string
@@ -42,6 +43,7 @@ CTYPE_CODES = {
 }
 
 # List of C function definitions from the cmonary library
+# TODO Needs to be updated
 FUNCDEFS = [
     # format: "func_name:arg_types:return_type"
     "monary_connect:SI:P",
@@ -136,6 +138,7 @@ def get_monary_numpy_type(orig_typename):
 def make_bson(obj):
     """Given a Python (JSON compatible) dictionary, returns a BSON string.
     
+    TODO
        (This hijacks the Python -> BSON conversion code from pymongo, which is needed for
        converting queries.  Perhaps this dependency can be removed in a later version.)
 
