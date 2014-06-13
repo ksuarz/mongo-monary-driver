@@ -2,7 +2,7 @@
 // Please see the included LICENSE.TXT and NOTICE.TXT for licensing information.
 
 // TODO: If we want C89, we lose inlining. The easiest way to fix this is to
-// manually inline everything - it will kill readability but it will make it
+// manually everything - it will kill readability but it will make it
 // much more portable.
 
 #include <stdlib.h>
@@ -285,7 +285,7 @@ int monary_set_column_item(monary_column_data* coldata,
     return 1;
 }
 
-inline int monary_load_objectid_value(const bson_iter_t* bsonit,
+int monary_load_objectid_value(const bson_iter_t* bsonit,
                                       monary_column_item* citem,
                                       int idx)
 {
@@ -304,7 +304,7 @@ inline int monary_load_objectid_value(const bson_iter_t* bsonit,
     }
 }
 
-inline int monary_load_bool_value(bson_iter_t* bsonit,
+int monary_load_bool_value(bson_iter_t* bsonit,
                                   bson_type_t type,
                                   monary_column_item* citem,
                                   int idx)
@@ -319,7 +319,7 @@ inline int monary_load_bool_value(bson_iter_t* bsonit,
 // them out instead of keeping them as macros so we can take advantage of the
 // built-in BSON type-checking macros
 #define MONARY_DEFINE_NUM_LOADER(FUNCNAME, NUMTYPE, BSONTYPE, BSONFUNC) \
-inline int FUNCNAME (const bson_iter_t* bsonit,                         \
+int FUNCNAME (const bson_iter_t* bsonit,                         \
                      bson_type_t type,                                  \
                      monary_column_item* citem,                         \
                      int idx)                                           \
@@ -334,7 +334,20 @@ inline int FUNCNAME (const bson_iter_t* bsonit,                         \
 }
 
 // XXX An example:
-inline int monary_load
+int monary_load_int32_value(const bson_iter_t *bsonit,
+                            monary_column_item *citem,
+                            int idx)
+{
+    if (BSON_ITER_HOLDS_INT32(bsonit)) {
+        INT32 value = bson_iter_int32(bsonit);
+        ((INT32*) citem->storage)[idx] = value;
+        return 1;
+    }
+    else {
+        return 0;
+    }
+}
+// XXX End example
 
 MONARY_DEFINE_NUM_LOADER(monary_load_int8_value, INT8, bson_iter_int)
 MONARY_DEFINE_NUM_LOADER(monary_load_int16_value, INT16, bson_iter_int)
@@ -347,7 +360,7 @@ MONARY_DEFINE_NUM_LOADER(monary_load_uint64_value, UINT64, bson_iter_long)
 MONARY_DEFINE_NUM_LOADER(monary_load_float32_value, FLOAT32, bson_iter_double)
 MONARY_DEFINE_NUM_LOADER(monary_load_float64_value, FLOAT64, bson_iter_double)
 
-inline int monary_load_datetime_value(const bson_iter_t* bsonit,
+int monary_load_datetime_value(const bson_iter_t* bsonit,
                                       monary_column_item* citem,
                                       int idx)
 {
@@ -361,7 +374,7 @@ inline int monary_load_datetime_value(const bson_iter_t* bsonit,
 }
 
 // TODO Support or no?
-inline int monary_load_timestamp_value(const bson_iter_t* bsonit,
+int monary_load_timestamp_value(const bson_iter_t* bsonit,
                                        bson_type_t type,
                                        monary_column_item* citem,
                                        int idx)
@@ -375,7 +388,7 @@ inline int monary_load_timestamp_value(const bson_iter_t* bsonit,
     }
 }
 
-inline int monary_load_string_value(const bson_iter_t* bsonit,
+int monary_load_string_value(const bson_iter_t* bsonit,
                                     monary_column_item* citem,
                                     int idx)
 {
@@ -391,7 +404,7 @@ inline int monary_load_string_value(const bson_iter_t* bsonit,
     }
 }
 
-inline int monary_load_binary_value(bson_iter_t* bsonit,
+int monary_load_binary_value(bson_iter_t* bsonit,
                                     monary_column_item* citem,
                                     int idx)
 {
@@ -410,7 +423,7 @@ inline int monary_load_binary_value(bson_iter_t* bsonit,
     }
 }
 
-inline int monary_load_bson_value(bson_iter_t* bsonit,
+int monary_load_bson_value(bson_iter_t* bsonit,
                                   bson_type_t type,
                                   monary_column_item* citem,
                                   int idx)
@@ -431,7 +444,7 @@ inline int monary_load_bson_value(bson_iter_t* bsonit,
     }
 }
 
-inline int monary_load_type_value(bson_iter_t* bsonit,
+int monary_load_type_value(bson_iter_t* bsonit,
                                   bson_type_t type,
                                   monary_column_item* citem,
                                   int idx)
@@ -440,7 +453,7 @@ inline int monary_load_type_value(bson_iter_t* bsonit,
     return 1;
 }
 
-inline int monary_load_size_value(bson_iter_t* bsonit,
+int monary_load_size_value(bson_iter_t* bsonit,
                                   bson_type_t type,
                                   monary_column_item* citem,
                                   int idx)
@@ -466,7 +479,7 @@ inline int monary_load_size_value(bson_iter_t* bsonit,
     return 1;
 }
 
-inline int monary_load_length_value(bson_iter_t* bsonit,
+int monary_load_length_value(bson_iter_t* bsonit,
                                     bson_type_t type,
                                     monary_column_item* citem,
                                     int idx)
