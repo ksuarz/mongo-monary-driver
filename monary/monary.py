@@ -360,12 +360,15 @@ class Monary(object):
                     sort=None, hint=None,
                     block_size=8192, limit=0, offset=0,
                     select_fields=False):
-        """Performs a block query --- a query whose results are returned in
+        """Performs a block query.
+
+        TODO more documentation (params)
+        
+           A block query is a query whose results are returned in
            blocks of a given size.  Instead of returning a list of arrays, this generator
            yields portions of each array in multiple blocks, where each block may contain
-           up to *block_size* elements.  For documentation of all other arguments, see
-           the `query` method.
-        
+           up to *block_size* elements.
+
            An example::
         
                cumulative_gain = 0.0
