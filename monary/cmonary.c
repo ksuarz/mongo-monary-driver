@@ -1,16 +1,13 @@
 // Monary - Copyright 2011-2014 David J. C. Beach
 // Please see the included LICENSE.TXT and NOTICE.TXT for licensing information.
 
-// TODO: If we want C89, we lose inlining. The easiest way to fix this is to
-// manually everything - it will kill readability but it will make it
-// much more portable.
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
-// TODO: These are wrong?
-#include "mongo.h"
+// TODO: When we're confident, try compiling against the new C driver and see
+// if the headers have changed
+#include "mongoc.h"
 #include "bson.h"
 
 #ifndef NDEBUG
@@ -22,8 +19,9 @@
 
 #define DEFAULT_MONGO_HOST "127.0.0.1"
 #define DEFAULT_MONGO_PORT 27017
+#define MONARY_MAX_NUM_COLUMNS 1024
+#define MONARY_MAX_NAME_LENGTH 1024
 
-// TODO: Add BSON array
 enum {
     TYPE_UNDEFINED = 0,
     TYPE_OBJECTID = 1,
@@ -38,15 +36,11 @@ enum {
     TYPE_UINT64 = 10,
     TYPE_FLOAT32 = 11,
     TYPE_FLOAT64 = 12,
-    TYPE_DATE = 13,      // BSON date-time, seconds since the UNIX epoch (uint64 storage)
-    TYPE_TIMESTAMP = 14, // BSON timestamp (uint64 storage)
-    TYPE_STRING = 15,    // each record is (type_arg) chars in length
-    TYPE_BINARY = 16,    // each record is (type_arg) bytes in length
-    TYPE_BSON = 17,      // get BSON (sub-)document as binary (each record is type_arg bytes)
-    TYPE_TYPE = 18,      // BSON type code (uint8 storage)
-    TYPE_SIZE = 19,      // data size of a string, symbol, binary, or bson object (uint32)
-    TYPE_LENGTH = 20,    // length of string (character count) or num elements in BSON (uint32)
-    LAST_TYPE = 20,
+    TYPE_DATETIME = 13, // BSON date-time, seconds since the UNIX epoch (uint64 storage)
+    TYPE_UTF8 = 14,     // each record is (type_arg) chars in length
+    TYPE_BINARY = 15,   // each record is (type_arg) bytes in length
+    TYPE_DOCUMENT = 16, // BSON subdocument as binary; each record is type_arg bytes
+    LAST_TYPE = 16,
 };
 
 typedef bson_oid_t OBJECTID;
@@ -61,9 +55,10 @@ typedef int64_t INT64;
 typedef unsigned char UINT8;
 typedef unsigned short UINT16;
 typedef unsigned int UINT32;
-typedef uint64_t UINT64;
+typedef unsigned uint64_t UINT64;
 typedef float FLOAT32;
 typedef double FLOAT64;
+typedef char* UTF8
 
 /**
  * Makes a new connection to a MongoDB server. It also allows for
@@ -94,8 +89,8 @@ mongoc_client_t* monary_connect(const char* host,
                                 const char* pass,
                                 const char* options)
 {
-    // TODO: Don't use asprintf; use malloc and snprintf instead
     // XXX: Draft only. Code is horrific. Make sure it works, then rewrite it
+    // Use malloc and snprintf instead of asprntf
     char *uri, *userpass;
 
     if(host == NULL) {
@@ -132,7 +127,7 @@ mongoc_client_t* monary_connect(const char* host,
         return NULL;
     }
 
-    // TODO
+    // TODO - do we need more cleanup?
     // Cleanup
     free(userpass);
     free(uri);
@@ -171,32 +166,35 @@ void monary_disconnect(mongoc_client_t* client)
     mongoc_client_destroy(client)
 }
 
-typedef struct monary_column_item monary_column_item;
-
 /**
- * Represents one column item.
+ * Holds the storage for an array of objects.
  *
  * @memb field The name of the field in the document.
  * @memb type The BSON type identifier, as specified by the Monary type enum.
- * @memb type_arg TODO What is this?
- * @memb storage A pointer to the location of the field data in memory.
- * @memb mask TODO Used for things but not sure what it's for.
+ * @memb type_arg If type is binary, UTF-8, or document, type_arg specifies the
+ * width of the field in bytes.
+ * @memb storage A pointer to the location of the "array" in memory. In the
+ * Python side of Monary, this points to the start of the NumPy array.
+ * @memb mask A pointer to the the "masked array." This is the internal
+ * representation of the NumPy ma.array, which corresponds one-to-one to the
+ * storage array. A value is masked if and only if an error occurs while
+ * loading memory from MongoDB.
  */
-struct monary_column_item
+typedef struct monary_column_item
 {
     char* field;
     unsigned int type;
     unsigned int type_arg;
     void* storage;
     unsigned char* mask;
-};
+} monary_column_item;
 
 /**
  * Represents a column of items.
  *
- * @memb num_columns The number of items per column.
- * @memb num_rows TODO I have no idea how this plays in
- * @memb columns A pointer to the first item in the column.
+ * @memb num_columns The number of arrays to track, one per field.
+ * @memb num_rows The number of elements per array.
+ * @memb columns A pointer to the first array.
  */
 typedef struct monary_column_data
 {
@@ -213,11 +211,20 @@ typedef struct monary_cursor {
     monary_column_data* coldata;
 } monary_cursor;
 
+/**
+ * Allocates heap space for data storage.
+ *
+ * @param num_columns The number of fields to store (that is, the number of
+ * internal monary_column_item structs tracked by the column data structure).
+ * Cannot exceed MONARY_MAX_NUM_COLS.
+ * @param num_rows The lengths of the arrays managed by each column item.
+ *
+ * @return A pointer to the newly-allocated column data.
+ */
 monary_column_data* monary_alloc_column_data(unsigned int num_columns,
                                              unsigned int num_rows)
 {
-    // TODO: Check this but LGTM
-    if(num_columns > 1024) { return NULL; }
+    if(num_columns > MONARY_MAX_NUM_COLUMNS) { return NULL; }
     monary_column_data* result = (monary_column_data*) malloc(sizeof(monary_column_data));
     monary_column_item* columns = (monary_column_item*) calloc(num_columns, sizeof(monary_column_item));
     result->num_columns = num_columns;
@@ -229,7 +236,6 @@ monary_column_data* monary_alloc_column_data(unsigned int num_columns,
 
 int monary_free_column_data(monary_column_data* coldata)
 {
-    // Only changes if monary_alloc_column_data changes
     if(coldata == NULL || coldata->columns == NULL) { return 0; }
     for(int i = 0; i < coldata->num_columns; i++) {
         monary_column_item* col = coldata->columns + i;
@@ -241,17 +247,23 @@ int monary_free_column_data(monary_column_data* coldata)
 }
 
 /**
- * Sets the field value for a particular column and item.
+ * Sets the field value for a particular column and item. This is referenced by
+ * Monary._make_column_data.
  *
  * @param coldata A pointer to the column data to modify.
- * @param colnum The number of the item to modify. Must be within range for
- * coldata.
- * @param field The new name of the column item.
+ * @param colnum The number of the column item within the table to modify
+ * (representing one data field). Columns are indexed starting from zero.
+ * @param field The new name of the column item. Cannot exceed
+ * MONARY_MAX_NAME_LENGTH characters in length.
  * @param type The new type of the item.
- * @param type_arg TODO
- * @param storage A pointer to the new location of the data in memory. Note
- * that this does not free(3) the previous storage pointer.
- * @param mask TODO
+ * @param type_arg For UTF-8, binary and BSON types, specifies the size of the
+ * data.
+ * @param storage A pointer to the new location of the data in memory, which
+ * cannot be NULL. Note that this does not free(3) the previous storage
+ * pointer.
+ * @param mask A pointer to the new masked array, which cannot be NULL. It is a
+ * programming error to have a masked array different in length from the
+ * storage array.
  *
  * @return 1 if the modification was performed successfully; 0 otherwise.
  */
@@ -270,7 +282,7 @@ int monary_set_column_item(monary_column_data* coldata,
     if(mask == NULL) { return 0; }
     
     int len = strlen(field);
-    if(len > 1024) { return 0; }
+    if(len > MONARY_MAX_NAME_LENGTH) { return 0; }
     
     monary_column_item* col = coldata->columns + colnum;
 
@@ -285,9 +297,9 @@ int monary_set_column_item(monary_column_data* coldata,
     return 1;
 }
 
-int monary_load_objectid_value(const bson_iter_t* bsonit,
-                                      monary_column_item* citem,
-                                      int idx)
+int monary_load_oid_value(const bson_iter_t* bsonit,
+                          monary_column_item* citem,
+                          int idx)
 {
     if (BSON_ITER_HOLDS_OID) {
         const OBJECTID* oid = bson_iter_oid(bsonit);
@@ -304,65 +316,48 @@ int monary_load_objectid_value(const bson_iter_t* bsonit,
     }
 }
 
-int monary_load_bool_value(bson_iter_t* bsonit,
-                                  bson_type_t type,
-                                  monary_column_item* citem,
-                                  int idx)
+int monary_load_bool_value(const bson_iter_t* bsonit,
+                           monary_column_item* citem,
+                           int idx)
 {
     BOOL value = bson_iter_bool(bsonit);
     ((BOOL*) citem->storage)[idx] = value;
     return 1;
 }
 
-// TODO Check to make sure we're doing the right thing re: unsigned num types??
-// TODO if we change the number of supported types, it will be better to write
-// them out instead of keeping them as macros so we can take advantage of the
-// built-in BSON type-checking macros
-#define MONARY_DEFINE_NUM_LOADER(FUNCNAME, NUMTYPE, BSONTYPE, BSONFUNC) \
-int FUNCNAME (const bson_iter_t* bsonit,                         \
-                     bson_type_t type,                                  \
-                     monary_column_item* citem,                         \
-                     int idx)                                           \
+#define MONARY_DEFINE_NUM_LOADER(FUNCNAME, NUMTYPE, BSONFUNC, VERIFIER) \
+int FUNCNAME (const bson_iterator* bsonit,                              \
+              monary_column_item *citem,                                \
+              int idx)                                                  \
 {                                                                       \
-    if(type = BSONTYPE) {                                               \
+    if (VERIFIER(bsonit)) {                                             \
         NUMTYPE value = BSONFUNC(bsonit);                               \
-        ((NUMTYPE*)citem->storage)[idx] = value;                        \
+        ((NUMTYPE*) citem->storage)[idx] = value;                       \
         return 1;                                                       \
     } else {                                                            \
         return 0;                                                       \
     }                                                                   \
 }
 
-// XXX An example:
-int monary_load_int32_value(const bson_iter_t *bsonit,
-                            monary_column_item *citem,
-                            int idx)
-{
-    if (BSON_ITER_HOLDS_INT32(bsonit)) {
-        INT32 value = bson_iter_int32(bsonit);
-        ((INT32*) citem->storage)[idx] = value;
-        return 1;
-    }
-    else {
-        return 0;
-    }
-}
-// XXX End example
+// Signed integers
+MONARY_DEFINE_NUM_LOADER(monary_load_int8_value, INT8, bson_iter_int32, BSON_ITER_HOLDS_INT32)
+MONARY_DEFINE_NUM_LOADER(monary_load_int16_value, INT16, bson_iter_int32, BSON_ITER_HOLDS_INT32)
+MONARY_DEFINE_NUM_LOADER(monary_load_int32_value, INT32, bson_iter_int32, BSON_ITER_HOLDS_INT32)
+MONARY_DEFINE_NUM_LOADER(monary_load_int64_value, INT64, bson_iter_int64, BSON_ITER_HOLDS_INT64)
 
-MONARY_DEFINE_NUM_LOADER(monary_load_int8_value, INT8, bson_iter_int)
-MONARY_DEFINE_NUM_LOADER(monary_load_int16_value, INT16, bson_iter_int)
-MONARY_DEFINE_NUM_LOADER(monary_load_int32_value, INT32, bson_iter_int)
-MONARY_DEFINE_NUM_LOADER(monary_load_int64_value, INT64, bson_iter_long)
-MONARY_DEFINE_NUM_LOADER(monary_load_uint8_value, UINT8, bson_iter_int)
-MONARY_DEFINE_NUM_LOADER(monary_load_uint16_value, UINT16, bson_iter_int)
-MONARY_DEFINE_NUM_LOADER(monary_load_uint32_value, UINT32, bson_iter_int)
-MONARY_DEFINE_NUM_LOADER(monary_load_uint64_value, UINT64, bson_iter_long)
-MONARY_DEFINE_NUM_LOADER(monary_load_float32_value, FLOAT32, bson_iter_double)
-MONARY_DEFINE_NUM_LOADER(monary_load_float64_value, FLOAT64, bson_iter_double)
+// Unsigned integers
+MONARY_DEFINE_NUM_LOADER(monary_load_uint8_value, UINT8, bson_iter_int32, BSON_ITER_HOLDS_INT32)
+MONARY_DEFINE_NUM_LOADER(monary_load_uint16_value, UINT16, bson_iter_int32, BSON_ITER_HOLDS_INT32)
+MONARY_DEFINE_NUM_LOADER(monary_load_uint32_value, UINT32, bson_iter_int32, BSON_ITER_HOLDS_INT32)
+MONARY_DEFINE_NUM_LOADER(monary_load_uint64_value, UINT64, bson_iter_int64, BSON_ITER_HOLDS_INT64)
+
+// Floating point
+MONARY_DEFINE_NUM_LOADER(monary_load_float32_value, FLOAT32, bson_iter_double, BSON_ITER_HOLDS_DOUBLE)
+MONARY_DEFINE_NUM_LOADER(monary_load_float63_value, FLOAT64, bson_iter_double, BSON_ITER_HOLDS_DOUBLE)
 
 int monary_load_datetime_value(const bson_iter_t* bsonit,
-                                      monary_column_item* citem,
-                                      int idx)
+                               monary_column_item* citem,
+                               int idx)
 {
     if (BSON_ITER_HOLDS_DATE_TIME(bsonit)) {
         DATETIME value = bson_iter_date_time(bsonit);
@@ -373,144 +368,112 @@ int monary_load_datetime_value(const bson_iter_t* bsonit,
     }
 }
 
-// TODO Support or no?
-int monary_load_timestamp_value(const bson_iter_t* bsonit,
-                                       bson_type_t type,
-                                       monary_column_item* citem,
-                                       int idx)
+int monary_load_utf8_value(const bson_iter_t* bsonit,
+                           monary_column_item* citem,
+                           int idx)
 {
-    if(type == BSON_TYPE_TIMESTAMP) {
-        bson_timestamp_t value = bson_iter_timestamp(bsonit);
-        ((UINT64*) citem->storage)[idx] = *((INT64*) &value);
-        return 1;
-    } else {
-        return 0;
-    }
-}
+    char *dest;         // A pointer to the final location of the array in mem
+    const char *src;    // Pointer to immutable buffer
+    uint32_t length;    // The size of the string according to iter_utf8
 
-int monary_load_string_value(const bson_iter_t* bsonit,
-                                    monary_column_item* citem,
-                                    int idx)
-{
-    // TODO Ask Jason or a C person about UTF-8 in C
+    // TODO use bson_dup. also, check sizing as uint32_t != size_t or can we typecast?
     if (BSON_ITER_HOLDS_UTF8(bsonit)) {
-        unsigned int size = citem->type_arg;
-        const char* src = bson_iter_utf8(bsonit, size);
-        char* dest = ((char*) citem->storage) + (idx * size);
-        strncpy(dest, src, size);
+        src = bson_iter_utf8(bsonit, &length);
+        if (length > citem->type_arg) {
+            length = citem->type_arg;
+        }
+        dest = ((char*) citem->storage) + (idx * length);
+        bson_strncpy(dest, src, size);
         return 1;
     } else {
         return 0;
     }
 }
 
-int monary_load_binary_value(bson_iter_t* bsonit,
-                                    monary_column_item* citem,
-                                    int idx)
+int monary_load_binary_value(const bson_iter_t* bsonit,
+                             monary_column_item* citem,
+                             int idx)
 {
-    if (BSON_ITER_HOLDS_BINARY(iter)) {
-        // TODO This needs to use the new bson_iter_binary(3) function, which
-        // gives you all the data you could possibly want.
+    bson_subtype_t subtype;
+    const uint8_t *binary;
+    int size;
+    uint32_t binary_len;
+
+    if (BSON_ITER_HOLDS_BINARY(bsonit)) {
+        // Load the binary
+        bson_iter_binary(bsonit, &subtype, &binary_len, &binary);
+
+        // Size checking
         int size = citem->type_arg;
-        int binlen = bson_iter_bin_len(bsonit);
-        if(binlen > size) { binlen = size; }
-        const char* src = bson_iter_bin_data(bsonit);
-        char* dest = ((char*) citem->storage) + (idx * size);
-        memcpy(dest, src, binlen);
+        if(binary_len > size) {
+            binary_len = size;
+        }
+
+        uint8_t *dest = ((uint8_t*) citem->storage) + (idx * size);
+        memcpy(dest, binary, binary_len);
         return 1;
     } else {
         return 0;
     }
 }
 
-int monary_load_bson_value(bson_iter_t* bsonit,
-                                  bson_type_t type,
-                                  monary_column_item* citem,
-                                  int idx)
+int monary_load_document_value(const bson_iter_t *bsonit,
+                               monary_column_item *citem,
+                               int idx)
 {
-    // TODO
-    if(type == bson_object || type == bson_array) {
-        bson subobj;
-        bson_iter_subobject(bsonit, &subobj);
-        int size = citem->type_arg;
-        int binlen = bson_size(&subobj);
-        if(binlen > size) { binlen = size; }
-        char* src = subobj.data;
-        char* dest = ((char*) citem->storage) + (idx * size);
-        memcpy(dest, src, binlen);
+    uint32_t document_len;      // The length of document in bytes.
+    const uint8_t *document;    // Pointer to the immutable document buffer.
+    uint8_t *dest;
+
+    if (BSON_ITER_HOLDS_DOCUMENT(bsonit)) {
+        bson_iter_document(bsonit, &document_len, &document);
+        if (document_len > citem->type_arg) {
+            document_len = citem->type_arg;
+        }
+
+        dest = ((uint8_t *) citem->storage) + (idx * document_len);
+        memcpy(dest, document, document_len);
         return 1;
-    } else {
+    }
+    else {
         return 0;
     }
 }
 
-int monary_load_type_value(bson_iter_t* bsonit,
-                                  bson_type_t type,
-                                  monary_column_item* citem,
-                                  int idx)
+int monary_load_array_value(const bson_iter_t *bsonit,
+                            monary_column_item *citem,
+                            int idx)
 {
-    ((UINT8*) citem->storage)[idx] = type;
-    return 1;
-}
+    const uint8_t *array;
+    uint32_t array_len;
+    uint8_t *dest;
 
-int monary_load_size_value(bson_iter_t* bsonit,
-                                  bson_type_t type,
-                                  monary_column_item* citem,
-                                  int idx)
-{
-    UINT32 size = 0;
-    // TODO Changed to use the new type enum
-    if(type == BSON_TYPE_UTF8 || type == BSON_TYPE_CODE || type == BSON_TYPE_SYMBOL) {
-        // NOTE: Binary size of string includes terminating '\0' character.
-        size = bson_iter_string_len(bsonit);
-    } else if(type == BSON_TYPE_BINARY) {
-        size = bson_iter_bin_len(bsonit);
-    } else if(type == BSON_TYPE_ARRAY || type == bson_object) { // TODO What the hell is "bson_object"
-        // TODO Does this mean we have array support?
-        // TODO This is very wrong <<XXX
-        bson subobj;
-        bson_iter_t_subobject(bsonit, &subobj);
-        size = bson_size(&subobj);
-        // XXX
-    } else {
+    if (BSON_ITER_HOLDS_ARRAY(bsonit)) {
+        bson_iter_array(bsonit, &array_len, &array);
+        dest = ((uint8_t *) citem->storage) + (idx * )
+        return 1;
+    }
+    else {
         return 0;
     }
-    ((UINT32*) citem->storage)[idx] = size;
-    return 1;
-}
-
-int monary_load_length_value(bson_iter_t* bsonit,
-                                    bson_type_t type,
-                                    monary_column_item* citem,
-                                    int idx)
-{
-    UINT32 length = 0;
-    if(type == bson_string || type == bson_code || type == bson_symbol) {
-        // The length of the string is the character count.  Since the string
-        // is UTF-8 encoded, we must count characters appropriately...
-        const char* s = bson_iter_t_string(bsonit);
-        length = mbstowcs(NULL, s, 0);
-    } else if(type == bson_array || type == bson_object) {
-        // The length of a BSON object is the number of elements (i.e. key-value pairs)
-        // it contains.  We count these by iterating over the elements.
-        bson_iter_t subiter;
-        bson_iter_t_subiterator(bsonit, &subiter);
-        while(bson_iter_t_next(&subiter) != 0) { ++length; }
-    } else {
-        // Other objects are not considered to have a length.
-        return 0;
-    }
-    ((UINT32*) citem->storage)[idx] = length;
-    return 1;
 }
 
 #define MONARY_DISPATCH_TYPE(TYPENAME, TYPEFUNC)    \
 case TYPENAME:                                      \
-success = TYPEFUNC(bsonit, type, citem, offset);    \
+success = TYPEFUNC(bsonit, citem, offset);    \
 break;
 
-int monary_load_item(bson_iter_t* bsonit,
-                     bson_type_t type,
+// DOUBLE
+// UTF8
+// DOCUMENT
+// OID
+// BOOL
+// DATE_TIME
+// INT32
+// INT64
+// ARRAY
+
+int monary_load_item(const bson_iter_t* bsonit,
                      monary_column_item* citem,
                      int offset)
 {
@@ -518,6 +481,7 @@ int monary_load_item(bson_iter_t* bsonit,
 
     switch(citem->type) {
         MONARY_DISPATCH_TYPE(TYPE_OBJECTID, monary_load_objectid_value)
+        MONARY_DISPATCH_TYPE(TYPE_DATETIME, monary_load_datetime_value)
         MONARY_DISPATCH_TYPE(TYPE_BOOL, monary_load_bool_value)
 
         MONARY_DISPATCH_TYPE(TYPE_INT8, monary_load_int8_value)
@@ -533,16 +497,10 @@ int monary_load_item(bson_iter_t* bsonit,
         MONARY_DISPATCH_TYPE(TYPE_FLOAT32, monary_load_float32_value)
         MONARY_DISPATCH_TYPE(TYPE_FLOAT64, monary_load_float64_value)
 
-        MONARY_DISPATCH_TYPE(TYPE_DATE, monary_load_datetime_value)
-        MONARY_DISPATCH_TYPE(TYPE_TIMESTAMP, monary_load_timestamp_value)
-
-        MONARY_DISPATCH_TYPE(TYPE_STRING, monary_load_string_value)
+        MONARY_DISPATCH_TYPE(TYPE_UTF8, monary_load_utf8_value)
         MONARY_DISPATCH_TYPE(TYPE_BINARY, monary_load_binary_value)
-        MONARY_DISPATCH_TYPE(TYPE_BSON, monary_load_bson_value)
-
-        MONARY_DISPATCH_TYPE(TYPE_TYPE, monary_load_type_value)
-        MONARY_DISPATCH_TYPE(TYPE_SIZE, monary_load_size_value)
-        MONARY_DISPATCH_TYPE(TYPE_LENGTH, monary_load_length_value)
+        MONARY_DISPATCH_TYPE(TYPE_DOCUMENT, monary_load_document_value)
+        MONARY_DISPATCH_TYPE(TYPE_ARRAY, monary_load_array_value)
     }
 
     return success;
@@ -568,18 +526,20 @@ int monary_bson_to_arrays(monary_column_data* coldata,
 {
     bson_type_t found_type;
     int num_masked = 0;
+    int i;
     bson_iter_t bsonit;
 
-    for(int i = 0; i < coldata->num_columns; i++) {
+    for(i = 0; i < coldata->num_columns; i++) {
         int offset = row;
         int success = 0;
         monary_column_item* citem = coldata->columns + i;
         
         if (bson_iter_init_find(&bsonit, bson_data, citem->field)) {
             // Determine the BSON type of the observed item on the iterator
+            // TODO I think this is broken now
             found_type = bson_iter_type(&bsonit);
 
-            // Dispatch to appropriate column handler (inlined)
+            // Dispatch to appropriate column handler
             if (found_type) {
                 success = monary_load_item(&bsonit, found_type, citem, offset);
             }
@@ -603,11 +563,14 @@ int monary_bson_to_arrays(monary_column_data* coldata,
  *
  * @return The number of documents in the collection matching the query.
  */
-long monary_query_count(mongo_connection* connection,
-                        const char* db_name,
-                        const char* coll_name,
-                        const char* query)
+long monary_query_count(mongoc_collection_t *collection,
+                        mongoc_query_flags_t flags,
+                        const bson_t *query,
+                        int64_t skip,
+                        int64_t limit,
+                        const mongoc_read_prefs_t *read_prefs)
 {
+    bson_error_t error;
 
     // build BSON query data
     bson query_bson;
@@ -623,6 +586,7 @@ long monary_query_count(mongo_connection* connection,
 void monary_get_bson_fields_list(monary_column_data* coldata,
                                  bson* fields_bson)
 {
+    // TODO
     bson_buffer fields_builder;
     bson_buffer_init(&fields_builder);
     for(int i = 0; i < coldata->num_columns; i++) {
@@ -707,10 +671,10 @@ int monary_load_query(monary_cursor* cursor)
     monary_column_data *coldata;
     mongoc_cursor_t *mcursor;
 
-    mcursor = cursor->mcursor;
-    coldata = cursor->coldata;
-    row = 0;
-    num_masked = 0;
+    mcursor = cursor->mcursor;  // The underlying MongoDB cursor
+    coldata = cursor->coldata;  // A pointer to the NumPy array data
+    row = 0;                    // Iterator var over the lengths of the arrays
+    num_masked = 0;             // The number of failed loads
     
     // read result values
     while(row < coldata->num_rows && mongoc_cursor_next(mcursor, &bson)) {
@@ -737,7 +701,7 @@ int monary_load_query(monary_cursor* cursor)
     int total_values = row * coldata->num_columns;
     DEBUG("%i rows loaded; %i / %i values were masked", row, num_masked, total_values);
 
-    bson_destroy(&bson); // TODO
+    bson_destroy(bson);
     return row;
 }
 
