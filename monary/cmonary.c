@@ -111,10 +111,10 @@ mongoc_client_t* monary_connect(const char* host,
 
     // Possible username and password combinations
     if (user && !pass) {
-        userpass = asprintf(&userpass, "%s@", user);
+        asprintf(&userpass, "%s@", user);
     }
     else if(user && pass) {
-        userpass = asprintf(&userpass, "%s:%s@", user, pass);
+        asprintf(&userpass, "%s:%s@", user, pass);
     }
     else {
         // A single NUL character (the empty string)
@@ -673,7 +673,6 @@ monary_cursor* monary_init_query(mongoc_collection_t *collection,
     // XXX Code Review
     bson_t query_bson;          // BSON representing the query to perform
     bson_t *fields_bson;        // BSON holding the fields to select
-    bson_error_t error;         // Location for libbson-related errors
     mongoc_cursor_t *mcursor;   // A MongoDB cursor
 
     // Sanity checks
@@ -711,7 +710,7 @@ monary_cursor* monary_init_query(mongoc_collection_t *collection,
 
     // destroy BSON fields
     bson_destroy(&query_bson);
-    if(fields_bson) { bson_destroy(&fields_bson); }
+    if(fields_bson) { bson_destroy(fields_bson); }
 
     // finally, create a new Monary cursor
     monary_cursor* cursor = (monary_cursor*) malloc(sizeof(monary_cursor));
@@ -774,7 +773,6 @@ int monary_load_query(monary_cursor* cursor)
     int total_values = row * coldata->num_columns;
     DEBUG("%i rows loaded; %i / %i values were masked", row, num_masked, total_values);
 
-    bson_destroy(bson);
     return row;
 }
 
