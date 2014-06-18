@@ -5,8 +5,6 @@
 #include <stdio.h>
 #include <string.h>
 
-// TODO: When we're confident, try compiling against the new C driver and see
-// if the headers have changed
 #include "mongoc.h"
 #include "bson.h"
 
@@ -21,7 +19,9 @@
 #define DEFAULT_MONGO_PORT 27017
 #define MONARY_MAX_NUM_COLUMNS 1024
 #define MONARY_MAX_NAME_LENGTH 1024
+#define MONARY_MAX_QUERY_LENGTH 4096
 
+// TODO
 enum {
     TYPE_UNDEFINED = 0,
     TYPE_OBJECTID = 1,
@@ -41,8 +41,10 @@ enum {
     TYPE_BINARY = 15,   // each record is (type_arg) bytes in length
     TYPE_DOCUMENT = 16, // BSON subdocument as binary; each record is type_arg bytes
     LAST_TYPE = 16,
+    TYPE_ARRAY = 17 // Where should we throw this in?
 };
 
+// XXX Some of these are already defined and Clang dislikes it
 typedef bson_oid_t OBJECTID;
 typedef int64_t DATETIME;
 #ifndef WIN32
@@ -55,10 +57,11 @@ typedef int64_t INT64;
 typedef unsigned char UINT8;
 typedef unsigned short UINT16;
 typedef unsigned int UINT32;
-typedef unsigned uint64_t UINT64;
+// typedef unsigned uint64_t UINT64;
+typedef unsigned long long UINT64;
 typedef float FLOAT32;
 typedef double FLOAT64;
-typedef char* UTF8
+typedef char* UTF8;
 
 /**
  * Makes a new connection to a MongoDB server. It also allows for
@@ -89,34 +92,42 @@ mongoc_client_t* monary_connect(const char* host,
                                 const char* pass,
                                 const char* options)
 {
-    // XXX: Draft only. Code is horrific. Make sure it works, then rewrite it
-    // Use malloc and snprintf instead of asprntf
+    // XXX: Draft only, but let's worry about making code pretty after it works
+    // TODO: Use malloc and snprintf instead of asprntf before pushing to master
     char *uri, *userpass;
 
+    // Hostname and portname
     if(host == NULL) {
         host = DEFAULT_MONGO_HOST;
     }
     if(port == 0) {
         port = DEFAULT_MONGO_PORT;
     }
+
+    // Specify a database name; otherwise, fall back to default
     if (!db) {
         db = "";
     }
-    // TODO: This logic for user/pass is incorrect
-    if(user || pass) {
+
+    // Possible username and password combinations
+    if (user && !pass) {
+        userpass = asprintf(&userpass, "%s@", user);
+    }
+    else if(user && pass) {
         userpass = asprintf(&userpass, "%s:%s@", user, pass);
     }
     else {
+        // A single NUL character (the empty string)
         userpass = (char *) calloc(1, sizeof(char));
     }
+
+    // Additional URI options
     if (!options) {
         options = "";
     }
 
     asprintf(&uri, "mongodb://%s%s:%i/%s?%s", userpass, host, port, db, options);
-
-    DEBUG("attempting connection to: '%s' port %i", options.host, options.port);
-
+    DEBUG("attempting connection to: '%s' port %i", host, port);
     mongoc_client_t* client = mongoc_client_new(uri);
 
     if(client) {
@@ -127,7 +138,6 @@ mongoc_client_t* monary_connect(const char* host,
         return NULL;
     }
 
-    // TODO - do we need more cleanup?
     // Cleanup
     free(userpass);
     free(uri);
@@ -141,8 +151,8 @@ mongoc_client_t* monary_connect(const char* host,
  * @return A pointer to a mongoc_client_t, or NULL if the connection attempt
  * was unsuccessful.
  */
-mongo_client_t *monary_connect_uri(const char *uri) {
-    mongo_client_t *client;
+mongoc_client_t *monary_connect_uri(const char *uri) {
+    mongoc_client_t *client;
     if (!uri) {
         return NULL;
     }
@@ -163,7 +173,7 @@ mongo_client_t *monary_connect_uri(const char *uri) {
  */
 void monary_disconnect(mongoc_client_t* client)
 {
-    mongoc_client_destroy(client)
+    mongoc_client_destroy(client);
 }
 
 /**
@@ -190,10 +200,11 @@ typedef struct monary_column_item
 } monary_column_item;
 
 /**
- * Represents a column of items.
+ * Represents a collection of arrays.
  *
  * @memb num_columns The number of arrays to track, one per field.
- * @memb num_rows The number of elements per array.
+ * @memb num_rows The number of elements per array. (Specifically, each
+ * monary_column_item.storage contains num_rows elements.)
  * @memb columns A pointer to the first array.
  */
 typedef struct monary_column_data
@@ -224,9 +235,13 @@ typedef struct monary_cursor {
 monary_column_data* monary_alloc_column_data(unsigned int num_columns,
                                              unsigned int num_rows)
 {
+    // XXX malloc failures could throw an exception
     if(num_columns > MONARY_MAX_NUM_COLUMNS) { return NULL; }
     monary_column_data* result = (monary_column_data*) malloc(sizeof(monary_column_data));
     monary_column_item* columns = (monary_column_item*) calloc(num_columns, sizeof(monary_column_item));
+    if (!result || !columns) {
+        return NULL;
+    }
     result->num_columns = num_columns;
     result->num_rows = num_rows;
     result->columns = columns;
@@ -287,6 +302,9 @@ int monary_set_column_item(monary_column_data* coldata,
     monary_column_item* col = coldata->columns + colnum;
 
     col->field = (char*) malloc(len + 1);
+    if (!(col->field)) {
+        return 0;
+    }
     strcpy(col->field, field);
     
     col->type = type;
@@ -301,7 +319,7 @@ int monary_load_oid_value(const bson_iter_t* bsonit,
                           monary_column_item* citem,
                           int idx)
 {
-    if (BSON_ITER_HOLDS_OID) {
+    if (BSON_ITER_HOLDS_OID(bsonit)) {
         const OBJECTID* oid = bson_iter_oid(bsonit);
         OBJECTID* oidloc = ((OBJECTID*) citem->storage) + idx;
 
@@ -326,7 +344,7 @@ int monary_load_bool_value(const bson_iter_t* bsonit,
 }
 
 #define MONARY_DEFINE_NUM_LOADER(FUNCNAME, NUMTYPE, BSONFUNC, VERIFIER) \
-int FUNCNAME (const bson_iterator* bsonit,                              \
+int FUNCNAME (const bson_iter_t *bsonit,                                \
               monary_column_item *citem,                                \
               int idx)                                                  \
 {                                                                       \
@@ -353,7 +371,7 @@ MONARY_DEFINE_NUM_LOADER(monary_load_uint64_value, UINT64, bson_iter_int64, BSON
 
 // Floating point
 MONARY_DEFINE_NUM_LOADER(monary_load_float32_value, FLOAT32, bson_iter_double, BSON_ITER_HOLDS_DOUBLE)
-MONARY_DEFINE_NUM_LOADER(monary_load_float63_value, FLOAT64, bson_iter_double, BSON_ITER_HOLDS_DOUBLE)
+MONARY_DEFINE_NUM_LOADER(monary_load_float64_value, FLOAT64, bson_iter_double, BSON_ITER_HOLDS_DOUBLE)
 
 int monary_load_datetime_value(const bson_iter_t* bsonit,
                                monary_column_item* citem,
@@ -376,14 +394,14 @@ int monary_load_utf8_value(const bson_iter_t* bsonit,
     const char *src;    // Pointer to immutable buffer
     uint32_t length;    // The size of the string according to iter_utf8
 
-    // TODO use bson_dup. also, check sizing as uint32_t != size_t or can we typecast?
+    // XXX Check the sizing on these things
     if (BSON_ITER_HOLDS_UTF8(bsonit)) {
         src = bson_iter_utf8(bsonit, &length);
         if (length > citem->type_arg) {
             length = citem->type_arg;
         }
         dest = ((char*) citem->storage) + (idx * length);
-        bson_strncpy(dest, src, size);
+        bson_strncpy(dest, src, length);
         return 1;
     } else {
         return 0;
@@ -396,7 +414,6 @@ int monary_load_binary_value(const bson_iter_t* bsonit,
 {
     bson_subtype_t subtype;
     const uint8_t *binary;
-    int size;
     uint32_t binary_len;
 
     if (BSON_ITER_HOLDS_BINARY(bsonit)) {
@@ -450,7 +467,10 @@ int monary_load_array_value(const bson_iter_t *bsonit,
 
     if (BSON_ITER_HOLDS_ARRAY(bsonit)) {
         bson_iter_array(bsonit, &array_len, &array);
-        dest = ((uint8_t *) citem->storage) + (idx * )
+        if (array_len > citem->type_arg) {
+            array_len = citem->type_arg;
+        }
+        dest = ((uint8_t *) citem->storage) + (idx * array_len);
         return 1;
     }
     else {
@@ -480,7 +500,7 @@ int monary_load_item(const bson_iter_t* bsonit,
     int success = 0;
 
     switch(citem->type) {
-        MONARY_DISPATCH_TYPE(TYPE_OBJECTID, monary_load_objectid_value)
+        MONARY_DISPATCH_TYPE(TYPE_OBJECTID, monary_load_oid_value)
         MONARY_DISPATCH_TYPE(TYPE_DATETIME, monary_load_datetime_value)
         MONARY_DISPATCH_TYPE(TYPE_BOOL, monary_load_bool_value)
 
@@ -516,7 +536,7 @@ int monary_load_item(const bson_iter_t* bsonit,
  * storage location for the BSON data.
  * @param row The row number to store the data in. Cannot exceed
  * coldata->num_columns.
- * @param bson_data A pointer to the raw BSON data to load.
+ * @param bson_data A pointer to an immutable BSON data buffer.
  *
  * @return The number of unsuccessful loads.
  */
@@ -534,6 +554,9 @@ int monary_bson_to_arrays(monary_column_data* coldata,
         int success = 0;
         monary_column_item* citem = coldata->columns + i;
         
+        // TODO: Ask Jason: is this okay? Aren't we skipping over other
+        // potential fields? etc.
+        // I need to look at the old C driver and see how that worked out
         if (bson_iter_init_find(&bsonit, bson_data, citem->field)) {
             // Determine the BSON type of the observed item on the iterator
             // TODO I think this is broken now
@@ -541,7 +564,8 @@ int monary_bson_to_arrays(monary_column_data* coldata,
 
             // Dispatch to appropriate column handler
             if (found_type) {
-                success = monary_load_item(&bsonit, found_type, citem, offset);
+                // TODO The function signature has changed
+                success = monary_load_item(&bsonit, citem, offset);
             }
         }
 
@@ -559,41 +583,66 @@ int monary_bson_to_arrays(monary_column_data* coldata,
 
 /**
  * Performs a count query on a MongoDB collection.
- * TODO
  *
- * @return The number of documents in the collection matching the query.
+ * @param collection The MongoDB collection to query against.
+ * @param query A valid JSON-compatible UTF-8 string query.
+ *
+ * @return If unsuccessful, returns -1; otherwise, returns the number of
+ * documents counted.
  */
-long monary_query_count(mongoc_collection_t *collection,
-                        mongoc_query_flags_t flags,
-                        const bson_t *query,
-                        int64_t skip,
-                        int64_t limit,
-                        const mongoc_read_prefs_t *read_prefs)
+int64_t monary_query_count(mongoc_collection_t *collection,
+                           const uint8_t *query)
 {
-    bson_error_t error;
+    bson_error_t error;     // A location for BSON errors
+    bson_t query_bson;      // The query converted to BSON format
+    int64_t total_count;    // The number of documents counted
 
     // build BSON query data
-    bson query_bson;
-    bson_init(&query_bson, (char*) query, 0);
+    bson_init_static(&query_bson,
+                     query,
+                     bson_strnlen(query, MONARY_MAX_QUERY_LENGTH));
     
-    long total_count = mongo_count(connection, db_name, coll_name, &query_bson);
-    
+    // Make the count query
+    total_count = mongoc_collection_count(collection,
+                                          MONGOC_QUERY_NONE,
+                                          &query_bson,
+                                          0,
+                                          0,
+                                          NULL,
+                                          &error);
     bson_destroy(&query_bson);
+    if (total_count < 0) {
+        DEBUG("error: %d.%d %s", error.domain, error.code, error.message);
+    }
 
     return total_count;
 }
 
+/**
+ * Given pre-allocated array data that specifies the fields to find, this
+ * builds a BSON document that can be passed into a MongoDB query.
+ * XXX: Perhaps this can be moved into query(), as it is only called there.
+ *
+ * @param coldata A pointer to a monary_column_data, which should have already
+ * been allocated and built properly. The names of the fields of its column
+ * items become the names of the fields to query for.
+ * @param fields_bson A pointer to a bson_t that should already be initialized.
+ * After this BSON is written to, it may be used in a query and then destroyed
+ * afterwards.
+ */
 void monary_get_bson_fields_list(monary_column_data* coldata,
-                                 bson* fields_bson)
+                                 bson_t* fields_bson)
 {
-    // TODO
-    bson_buffer fields_builder;
-    bson_buffer_init(&fields_builder);
-    for(int i = 0; i < coldata->num_columns; i++) {
-        monary_column_item* col = coldata->columns + i;
-        bson_append_int(&fields_builder, col->field, 1);
+    int i;
+    monary_column_item *col;
+
+    // We want to select exactly each field specified in coldata, of which
+    // there are exactly coldata.num_columns
+    for (i = 0; i < coldata->num_columns; i++) {
+        col = coldata->columns + i;
+        // TODO: Is it strlen or strlen+1?
+        bson_append_int32(fields_bson, col->field, strlen(col->field), 1);
     }
-    bson_from_buffer(fields_bson, &fields_builder);
 }
 
 /**
@@ -601,56 +650,81 @@ void monary_get_bson_fields_list(monary_column_data* coldata,
  * the results and storing them in Monary columns.
  *
  * @param collection The MongoDB collection to query against.
- * @param flags Flags for the query.
- * @param skip The number of documents to skip, or zero.
+ * @param offset The number of documents to skip, or zero.
  * @param limit The maximum number of documents to return, or zero.
- * @param batch_size The batch size of document results sets, or zero for the
- * default value (which is 100).
  * @param query A valid JSON-compatible UTF-8 string query. This function does
  * no validation, so you should ensure that the query is well-formatted.
- * @param fields A JSON-compatible UTF-8 string containing fields to return, or
- * NULL.
- * @param read_prefs Read preferences, or NULL for the default preferences.
  * @param coldata The column data to store the results in.
  * @param select_fields If truthy, select exactly the fields from the database
- * that match the fields in coldata. To disable this, set this to false.
- * TODO Can we even use these flags? Do we care? How does this play with the Python?
+ * that match the fields in coldata. If false, the query will find and return
+ * all fields from matching documents.
  *
- * @return A Monary cursor that should be freed with monary_close_query(3) when
- * no longer in use.
+ * @return If successful, a Monary cursor that should be freed with
+ * monary_close_query() when no longer in use. If unsuccessful, or if an
+ * invalid query was passed in, NULL is returned.
  */
 monary_cursor* monary_init_query(mongoc_collection_t *collection,
-                                 mongoc_query_flags_t flags,
-                                 uint32_t skip,
+                                 uint32_t offset,
                                  uint32_t limit,
-                                 uint32_t batch_size,
-                                 const uint8_t *data,
-                                 const uint8_t *fields,
-                                 const mongoc_read_prefs_t *read_prefs,
+                                 const uint8_t *query,
                                  monary_column_data *coldata,
                                  int select_fields)
 {
+    // XXX Code Review
+    bson_t query_bson;          // BSON representing the query to perform
+    bson_t *fields_bson;        // BSON holding the fields to select
+    bson_error_t error;         // Location for libbson-related errors
+    mongoc_cursor_t *mcursor;   // A MongoDB cursor
+
+    // Sanity checks
+    if (!collection || !query || !coldata) {
+        return NULL;
+    }
+
     // build BSON query data
-    bson query_bson;
-    bson_init(&query_bson, (char*) query, 0);
+    bson_init_static(&query_bson,
+                     query,
+                     bson_strnlen(query, MONARY_MAX_QUERY_LENGTH));
+    fields_bson = NULL;
+
 
     // build BSON fields list (if necessary)
-    bson query_fields;
-    if(select_fields) { monary_get_bson_fields_list(coldata, &query_fields); }
+    if(select_fields) {
+        // Initialize BSON on the heap, as it will grow
+        fields_bson = bson_new();
+        if (!fields_bson) {
+            DEBUG("An error occurred while allocating memory for BSON data.");
+            return NULL;
+        }
+        monary_get_bson_fields_list(coldata, &query_bson);
+    }
 
     // create query cursor
-    bson* fields_ptr = select_fields ? &query_fields : NULL;
-    mongo_cursor* mcursor = mongo_find(connection, ns, &query_bson, fields_ptr, limit, offset, 0);
+    mcursor = mongoc_collection_find(collection,
+                                     MONGOC_QUERY_NONE,
+                                     offset,
+                                     limit,
+                                     0,
+                                     &query_bson,
+                                     fields_bson,
+                                     NULL);
 
     // destroy BSON fields
     bson_destroy(&query_bson);
-    if(select_fields) { bson_destroy(&query_fields); }
+    if(fields_bson) { bson_destroy(&fields_bson); }
 
+    // finally, create a new Monary cursor
     monary_cursor* cursor = (monary_cursor*) malloc(sizeof(monary_cursor));
-    cursor->mcursor = mcursor;
-    cursor->coldata = coldata;
-    
-    return cursor;
+    if (!cursor) {
+        DEBUG("malloc(3) failed to allocate a Monary cursor");
+        mongoc_cursor_destroy(mcursor);
+        return NULL;
+    }
+    else {
+        cursor->mcursor = mcursor;
+        cursor->coldata = coldata;
+        return cursor;
+    }
 }
 
 /**
@@ -664,8 +738,8 @@ monary_cursor* monary_init_query(mongoc_collection_t *collection,
  */
 int monary_load_query(monary_cursor* cursor)
 {
-    bson_error_t error;
-    const bson_t *bson;
+    bson_error_t error;             // A location for errors
+    const bson_t *bson;             // Pointer to an immutable BSON buffer
     int num_masked;
     int row;
     monary_column_data *coldata;
@@ -677,7 +751,9 @@ int monary_load_query(monary_cursor* cursor)
     num_masked = 0;             // The number of failed loads
     
     // read result values
-    while(row < coldata->num_rows && mongoc_cursor_next(mcursor, &bson)) {
+    while(row < coldata->num_rows
+            && !mongoc_cursor_error(mcursor, &error)
+            && mongoc_cursor_more(mcursor)) {
 
 #ifndef NDEBUG
         if(row % 500000 == 0) {
@@ -685,15 +761,12 @@ int monary_load_query(monary_cursor* cursor)
         }
 #endif
 
-        num_masked += monary_bson_to_arrays(coldata, row, &(mcursor->current));
+        if (mongoc_cursor_next(mcursor, &bson)) {
+            num_masked += monary_bson_to_arrays(coldata, row, bson);
+        }
         ++row;
     }
 
-    // TODO: Put the error handling here, or earlier? (If earlier, it has to be
-    // in Python code.) There are try-excepts where this is invoked in
-    // Monary.query in the Python, so perhaps the errors may never propagate
-    // here?
-    // Will a python try-except even work on C code??
     if (mongoc_cursor_error(mcursor, &error)) {
         DEBUG("error: %d.%d %s", error.domain, error.code, error.message);
     }
