@@ -223,10 +223,11 @@ class Monary(object):
         """
         self._cmonary = cmonary
         self._connection = None
+        self._collection = None
         self.connect(host, port, username, password, database, options)
             
-    def connect(self, host="localhost", port=27017, username=None, password=None,
-                database=None, options=None):
+    def connect(self, host="localhost", port=27017, username=None,
+                password=None, database=None, options=None):
         """Connects to the given host and port.
 
            :param host: host name (or IP) to connect
@@ -238,9 +239,6 @@ class Monary(object):
            credentials exist, this defaults to the "admin" database. See
            mongoc_uri(7).
            :param options: Connection-specific options in valid URI format.
-
-           :returns: True if connection was successful, False otherwise.
-           :rtype: bool
         """
         if self._connection is not None:
             self.close()
@@ -262,9 +260,10 @@ class Monary(object):
         if options is not None:
             uri.append("?%s" % options)
 
+        # Attempt the connection
         self._connection = cmonary.monary_connect("".join(uri))
-        success = (self._connection is not None)
-        return success
+        if self._connection is None:
+            raise Exception("Failed to connect to database %s" % uri)
 
     def use_collection(self, db, collection):
         """Use the specified collection to query against.
@@ -447,6 +446,9 @@ class Monary(object):
 
     def close(self):
         """Closes the current connection, if any."""
+        if self._collection is not None:
+            cmonary.monary_destroy_collection(self._collection)
+            self._collection = None
         if self._connection is not None:
             cmonary.monary_disconnect(self._connection)
             self._connection = None
