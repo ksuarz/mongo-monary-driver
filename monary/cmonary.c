@@ -15,9 +15,6 @@
 #define DEBUG(...)
 #endif
 
-#define DEFAULT_MONGO_HOST "127.0.0.1"
-#define DEFAULT_MONGO_PORT 27017
-
 enum {
     TYPE_UNDEFINED = 0,
     TYPE_OBJECTID = 1,
@@ -58,38 +55,71 @@ typedef uint64_t UINT64;
 typedef float FLOAT32;
 typedef double FLOAT64;
 
-mongo_connection* monary_connect(const char* host,
-                                 int port)
-{
-    if(host == NULL) { host = DEFAULT_MONGO_HOST; }
-    if(port == 0) { port = DEFAULT_MONGO_PORT; }
-    
-    mongo_connection* conn = (mongo_connection*) malloc(sizeof(mongo_connection));
-    
-    DEBUG("attempting connection to: '%s' port %i", options.host, options.port);
-    
-    mongo_conn_return conn_result = mongo_connect(conn, host, port);
-    
-    if(conn_result == mongo_conn_success) {
-        DEBUG("connected successfully");
-        return conn;
-    } else {
-        DEBUG("received mongo_connect error code: %i\n", conn_result);
+/**
+ * Makes a new connection to a MongoDB server and database.
+ *
+ * @param uri A MongoDB URI, as per mongoc_uri(7).
+ *
+ * @return A pointer to a mongoc_client_t, or NULL if the connection attempt
+ * was unsuccessful.
+ */
+mongoc_client_t *monary_connect(const char *uri) {
+    mongoc_client_t *client;
+    if (!uri) {
         return NULL;
+    }
+
+    DEBUG("Attempting connection to: %s", uri);
+    client = mongoc_client_new(uri);
+    if (client) {
+        DEBUG("Connection successful.");
+    }
+    else {
+        DEBUG("An error occurred while attempting to connect to %s\n", uri);
+    }
+    return client;
+}
+
+/**
+ * Destroys all resources from the given client and disconnects from the MongoDB database.
+ *
+ * @param client The client to disconnect from.
+ */
+void monary_disconnect(mongoc_client_t* client)
+{
+    mongoc_client_destroy(client);
+}
+
+/**
+ * Use a particular database and collection from the given MongoDB client.
+ *
+ * @param client A mongoc_client_t that has been properly connected to with
+ * mongoc_client_new().
+ * @param db A valid ASCII C string for the name of the database.
+ * @param collection A valid ASCII C string for the collection name.
+ *
+ * @return If successful, a mongoc_collection_t that can be queried against
+ * with mongoc_collection_find(3).
+ */
+mongoc_collection_t *monary_use_collection(mongoc_client_t *client,
+                                           const char *db,
+                                           const char *collection)
+{
+    if (client && db && collection) {
+        return mongoc_client_get_collection(client, db, collection);
     }
 }
 
-int monary_authenticate(mongo_connection* connection,
-                        const char* db,
-                        const char* user,
-                        const char* pass)
+/**
+ * Destroys the given collection, allowing you to connect to another one.
+ *
+ * @param collection The collection to destroy.
+ */
+void monary_destroy_collection(mongoc_collection_t *collection)
 {
-    return mongo_cmd_authenticate(connection, db, user, pass);
-}
-
-void monary_disconnect(mongo_connection* connection)
-{
-    mongo_destroy(connection);
+    if (collection) {
+        mongoc_collection_destroy(collection);
+    }
 }
 
 typedef struct monary_column_item monary_column_item;

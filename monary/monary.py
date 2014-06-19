@@ -207,46 +207,83 @@ def get_full_query(query, sort=None, hint=None):
 class Monary(object):
     """Represents a 'monary' connection to a particular MongoDB server."""
     
-    def __init__(self, host=None, port=0):
+    def __init__(self, host="localhost", port=27017, username=None,
+                 password=None, database=None, options=None):
         """Initialize this connection with the given host and port.
         
            :param host: host name (or IP) to connect
            :param port: port number of running MongoDB service on host
+           :param username: An optional username for authentication.
+           :param password: An optional password for authentication.
+           :param database: The database to authenticate to if the URI
+           specifies a username and password. If this is not specified but
+           credentials exist, this defaults to the "admin" database. See
+           mongoc_uri(7).
+           :param options: Connection-specific options in valid URI format.
         """
         self._cmonary = cmonary
         self._connection = None
-        self.connect(host, port)
+        self.connect(host, port, username, password, database, options)
             
-    def connect(self, host=None, port=0):
+    def connect(self, host="localhost", port=27017, username=None, password=None,
+                database=None, options=None):
         """Connects to the given host and port.
 
            :param host: host name (or IP) to connect
            :param port: port number of running MongoDB service on host
+           :param username: An optional username for authentication.
+           :param password: An optional password for authentication.
+           :param database: The database to authenticate to if the URI
+           specifies a username and password. If this is not specified but
+           credentials exist, this defaults to the "admin" database. See
+           mongoc_uri(7).
+           :param options: Connection-specific options in valid URI format.
 
            :returns: True if connection was successful, False otherwise.
            :rtype: bool
         """
         if self._connection is not None:
             self.close()
-        self._connection = cmonary.monary_connect(host, port)
+
+        # First, build up the URI string.
+        uri = ["mongodb://"]
+        if username is not None:
+            if password is None:
+                uri.append("%s@" % username)
+            else:
+                uri.append("%s:%s@" % (username, password))
+        elif password is not None:
+            raise ValueError("You cannot have a password with no username.")
+        
+        uri.append("%s:%d" % (host, port))
+
+        if database is not None:
+            uri.append("/%s" % database)
+        if options is not None:
+            uri.append("?%s" % options)
+
+        self._connection = cmonary.monary_connect("".join(uri))
         success = (self._connection is not None)
         return success
 
-    def authenticate(self, db, user, passwd):
-        """Authenticate this Monary connection for a given database with the provided
-           username and password.
+    def use_collection(self, db, collection):
+        """Use the specified collection to query against.
         
             :param db: name of database
-            :param user: name of authenticating user
-            :param passwd: password for user
+            :param collection: name of collection
             
-            :returns: True if authentication was successful, False otherwise.
+            :returns: True if successful; false otherwise.
             :rtype: bool
         """
-        
         assert self._connection is not None, "Not connected"
-        result = cmonary.monary_authenticate(self._connection, db, user, passwd)
-        return bool(result)
+        if self._collection is not None:
+            cmonary.monary_destroy_collection(self._collection)
+
+        self._collection = cmonary.monary_use_collection(self._connection,
+                                                         db,
+                                                         collection)
+        success = (self._collection is not None)
+        return success
 
     def _make_column_data(self, fields, types, count):
         """Builds the 'column data' structure used by the underlying cmonary code to
