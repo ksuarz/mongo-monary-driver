@@ -46,14 +46,14 @@ CTYPE_CODES = {
 # TODO Needs to be updated
 FUNCDEFS = [
     # format: "func_name:arg_types:return_type"
-    "monary_connect:SI:P",
-    "monary_authenticate:PSSS:I",
+    "monary_connect:SISSSS",
+    "monary_connect_uri:S:P",
     "monary_disconnect:P:0",
     "monary_alloc_column_data:UU:P",
     "monary_free_column_data:P:I",
     "monary_set_column_item:PUSUUPP:I",
-    "monary_query_count:PSSS:L",
-    "monary_init_query:PSSIIPI:P",
+    "monary_query_count:PP:L",
+    "monary_init_query:PUUPPI:P",
     "monary_load_query:P:I",
     "monary_close_query:P:0",
 ]
@@ -83,10 +83,10 @@ MONARY_TYPES = {
     "uint64":    (10, numpy.uint64),
     "float32":   (11, numpy.float32),
     "float64":   (12, numpy.float64),
-    "date":      (13, numpy.uint64),
+    "datetime":  (13, numpy.int64),
     "timestamp": (14, numpy.uint64),
     "string":    (15, "S"),
-    "binary":    (16, "<V"),
+    "binary":    (16, "<V"),            # Little-endian raw data (void pointer)
     "bson":      (17, "<V"),
     "type":      (18, numpy.uint8),
     "size":      (19, numpy.uint32),
@@ -118,7 +118,7 @@ def get_monary_numpy_type(orig_typename):
         try:
             type_arg = int(arg)
         except ValueError:
-            raise ValueError("unable to parse type argnument in: %r" % orig_typename)
+            raise ValueError("unable to parse type argument in: %r" % orig_typename)
     else:
         type_arg = 0
         type_name = orig_typename

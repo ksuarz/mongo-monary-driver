@@ -36,10 +36,11 @@ enum {
     TYPE_UINT64 = 10,
     TYPE_FLOAT32 = 11,
     TYPE_FLOAT64 = 12,
-    TYPE_DATETIME = 13, // BSON date-time, seconds since the UNIX epoch (uint64 storage)
-    TYPE_UTF8 = 14,     // each record is (type_arg) chars in length
-    TYPE_BINARY = 15,   // each record is (type_arg) bytes in length
-    TYPE_DOCUMENT = 16, // BSON subdocument as binary; each record is type_arg bytes
+    TYPE_DATE = 13,     // BSON date-time, seconds since the UNIX epoch (uint64 storage)
+    TYPE_TIMESTAMP = 14;
+    TYPE_STRING = 15,   // each record is (type_arg) chars in length
+    TYPE_BINARY = 16,   // each record is (type_arg) bytes in length
+    TYPE_DOCUMENT = 17, // BSON subdocument as binary; each record is type_arg bytes
     LAST_TYPE = 16,
     TYPE_ARRAY = 17 // Where should we throw this in?
 };
@@ -477,6 +478,45 @@ int monary_load_array_value(const bson_iter_t *bsonit,
         return 0;
     }
 }
+
+// XXX: Using bson_type_t
+int monary_load_type_value(const bson_iter_t *bsonit,
+                           monary_column_item *citem,
+                           int idx) {
+    uint8_t type;
+    type = (uint8_t) bson_iter_type(bsonit);
+    ((uint8_t *) citem->storage)[idx] = type;
+    return 1;
+}
+
+int monary_load_size_value(const bson_iter_t *bsonit,
+                           monary_column_item *citem,
+                           int idx)
+{
+    bson_type_t type;
+    char *discard;
+    uint32_t size;
+
+    type = bson_iter_type(bsonit);
+    switch (type) {
+        case BSON_TYPE_UTF8:
+            bson_iter_utf8(bsonit, &length);
+            break;
+        case BSON_TYPE_ARRAY:
+            bson_iter_array(bsonit, &size, &discard);
+            break;
+        case BSON_TYPE_BINARY:
+            bson_iter_binary(bsonit, &discard, &size, &discard);
+            break;
+        case BSON_TYPE_DOCUMENT:
+            bson_iter_document(bsonit, &size, &discard);
+            break;
+        default:
+            return 0;
+    }
+    return 1;
+}
+#define monary_load_length_value monary_load_uint32_value
 
 #define MONARY_DISPATCH_TYPE(TYPENAME, TYPEFUNC)    \
 case TYPENAME:                                      \
