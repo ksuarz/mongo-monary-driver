@@ -224,8 +224,12 @@ class Monary(object):
            :returns: True if successful; false otherwise.
            :rtype: bool
         """
+
         self._cmonary = cmonary
         self._connection = None
+        self._collection_ns = ''
+        self._collection = None
+        # Next two values are only used to continue support of authenticate
         self._host = None
         self._port = None
         self.connect(host, port, username, password, database, options)
@@ -247,6 +251,7 @@ class Monary(object):
            :returns: True if successful; false otherwise.
            :rtype: bool
         """
+
         if self._connection is not None:
             self.close()
 
@@ -298,6 +303,7 @@ class Monary(object):
             :returns: True if successful; false otherwise.
             :rtype: bool
         """
+
         assert self._host is not None, "Not connected"
         assert self._port is not None, "Not connected"
         return connect(self, host=None, port=None, username=user,
@@ -341,6 +347,29 @@ class Monary(object):
 
         return coldata, colarrays
 
+    def _get_collection(self, db, collection):
+        """Returns the specified collection to query against.
+
+            :param db: name of database
+            :param collection: name of collection
+
+            :returns: True if successful; false otherwise
+            :rtype: bool
+        """
+        assert self._connection is not None, "Not connected"
+        if self._collection is not None:
+            if self._collection_ns != db + '.' + collection:
+                cmonary.monary_destroy_collection(self._collection)
+            else:
+                return True
+
+        self._collection = cmonary.monary_use_collection(self._connection,
+                                                         db,
+                                                         collection)
+        success = (self._collection is not None)
+        self._collection_ns = db + '.' + collection if success else ''
+        return success
+
     def count(self, db, coll, query=None):
         """Count the number of records that will be returned by the given query.
         
@@ -351,9 +380,10 @@ class Monary(object):
            :returns: the number of records
            :rtype: int
         """
-        
+        if not self._get_collection(db, coll):
+            raise ValueError("unable to get the collection")
         query = make_bson(query)
-        return cmonary.monary_query_count(self._connection, db, coll, query)
+        return cmonary.monary_query_count(self._collection, query)
 
     def query(self, db, coll, query, fields, types,
               sort=None, hint=None,
@@ -397,8 +427,10 @@ class Monary(object):
             ns = "%s.%s" % (db, coll)
             cursor = None
             try:
-                cursor = cmonary.monary_init_query(self._connection, ns, full_query, limit, offset,
-                                                   coldata, select_fields)
+                if not self._get_collection(db, coll):
+                    raise ValueError("unable to get the collection")
+                cursor = cmonary.monary_init_query(self._collection, offset, limit,
+                                                   full_query, coldata, select_fields)
                 cmonary.monary_load_query(cursor)
             finally:
                 if cursor is not None:
@@ -464,10 +496,11 @@ class Monary(object):
                 cmonary.monary_free_column_data(coldata)
 
     def close(self):
-        """Closes the current connection, if any."""
+        """Destroy the current collection, if any."""
         if self._collection is not None:
             cmonary.monary_destroy_collection(self._collection)
             self._collection = None
+        """Closes the current connection, if any."""
         if self._connection is not None:
             cmonary.monary_disconnect(self._connection)
             self._connection = None
