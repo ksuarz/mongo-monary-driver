@@ -15,8 +15,6 @@
 #define DEBUG(...)
 #endif
 
-#define DEFAULT_MONGO_HOST "127.0.0.1"
-#define DEFAULT_MONGO_PORT 27017
 #define MONARY_MAX_NUM_COLUMNS 1024
 #define MONARY_MAX_NAME_LENGTH 1024
 #define MONARY_MAX_QUERY_LENGTH 4096
@@ -42,10 +40,8 @@ enum {
     TYPE_BINARY = 16,   // each record is (type_arg) bytes in length
     TYPE_DOCUMENT = 17, // BSON subdocument as binary; each record is type_arg bytes
     LAST_TYPE = 16,
-    TYPE_ARRAY = 17 // Where should we throw this in?
 };
 
-// XXX Some of these are already defined and Clang dislikes it
 typedef bson_oid_t OBJECTID;
 typedef int64_t DATETIME;
 #ifndef WIN32
@@ -54,95 +50,19 @@ typedef char INT8;
 #endif
 typedef short INT16;
 typedef int INT32;
+#ifndef INT64
 typedef int64_t INT64;
+#endif
 typedef unsigned char UINT8;
 typedef unsigned short UINT16;
 typedef unsigned int UINT32;
-// typedef unsigned uint64_t UINT64;
+#ifndef UINT64
+typedef unsigned uint64_t UINT64
+#endif
 typedef unsigned long long UINT64;
 typedef float FLOAT32;
 typedef double FLOAT64;
 typedef char* UTF8;
-
-/**
- * Makes a new connection to a MongoDB server. It also allows for
- * authentication to a database using a username and password. This combines
- * the old behaviors of monary_connect and monary_authenticate.
- *
- * A new feature is the options parameter, which allows you to specify extra
- * options to the MongoDB connection URI.
- *
- * @param host The name of the host to connect to; if it is NULL, then it
- * uses the default MongoDB hostname.
- * @param port The port to connect to on the host; if the port is 0, then it
- * uses the default MongoDB port number.
- * @param db The database to connect to. If this is not specified but username
- * and password credentials exist, then it defaults to the admin database as
- * per mongoc_uri(7).
- * @param user An optional username.
- * @param pass A password for the user.
- * @param options Additional options for the MongoDB connection URI.
- *
- * @return A pointer to a mongoc_client_t. Note that this object is NOT thread
- * safe and can only be used from one thread at a time. See mongoc_client(3).
- */
-mongoc_client_t* monary_connect(const char* host,
-                                int port,
-                                const char* db,
-                                const char* user,
-                                const char* pass,
-                                const char* options)
-{
-    // XXX: Draft only, but let's worry about making code pretty after it works
-    // TODO: Use malloc and snprintf instead of asprntf before pushing to master
-    char *uri, *userpass;
-
-    // Hostname and portname
-    if(host == NULL) {
-        host = DEFAULT_MONGO_HOST;
-    }
-    if(port == 0) {
-        port = DEFAULT_MONGO_PORT;
-    }
-
-    // Specify a database name; otherwise, fall back to default
-    if (!db) {
-        db = "";
-    }
-
-    // Possible username and password combinations
-    if (user && !pass) {
-        asprintf(&userpass, "%s@", user);
-    }
-    else if(user && pass) {
-        asprintf(&userpass, "%s:%s@", user, pass);
-    }
-    else {
-        // A single NUL character (the empty string)
-        userpass = (char *) calloc(1, sizeof(char));
-    }
-
-    // Additional URI options
-    if (!options) {
-        options = "";
-    }
-
-    asprintf(&uri, "mongodb://%s%s:%i/%s?%s", userpass, host, port, db, options);
-    DEBUG("attempting connection to: '%s' port %i", host, port);
-    mongoc_client_t* client = mongoc_client_new(uri);
-
-    if(client) {
-        DEBUG("connected successfully");
-        return client;
-    } else {
-        DEBUG("an error occurred when attempting to connect to %s\n", uri);
-        return NULL;
-    }
-
-    // Cleanup
-    free(userpass);
-    free(uri);
-}
 
 /**
  * Makes a new connection to a MongoDB server and database.
@@ -152,7 +72,7 @@ mongoc_client_t* monary_connect(const char* host,
  * @return A pointer to a mongoc_client_t, or NULL if the connection attempt
  * was unsuccessful.
  */
-mongoc_client_t *monary_connect_uri(const char *uri) {
+mongoc_client_t *monary_connect(const char *uri) {
     mongoc_client_t *client;
     if (!uri) {
         return NULL;
@@ -236,7 +156,6 @@ typedef struct monary_cursor {
 monary_column_data* monary_alloc_column_data(unsigned int num_columns,
                                              unsigned int num_rows)
 {
-    // XXX malloc failures could throw an exception
     if(num_columns > MONARY_MAX_NUM_COLUMNS) { return NULL; }
     monary_column_data* result = (monary_column_data*) malloc(sizeof(monary_column_data));
     monary_column_item* columns = (monary_column_item*) calloc(num_columns, sizeof(monary_column_item));
@@ -286,14 +205,14 @@ int monary_free_column_data(monary_column_data* coldata)
 int monary_set_column_item(monary_column_data* coldata,
                            unsigned int colnum,
                            const char* field,
-                           unsigned int type,
+                           unsigned int type,       // TODO bson_type_t
                            unsigned int type_arg,
                            void* storage,
                            unsigned char* mask)
 {
     if(coldata == NULL) { return 0; }
     if(colnum >= coldata->num_columns) { return 0; }
-    if(type == TYPE_UNDEFINED || type > LAST_TYPE) { return 0; }
+    if(type == TYPE_UNDEFINED || type > LAST_TYPE) { return 0; } // TODO BSON_TYPE_UNDEFINED
     if(storage == NULL) { return 0; }
     if(mask == NULL) { return 0; }
     
@@ -316,15 +235,14 @@ int monary_set_column_item(monary_column_data* coldata,
     return 1;
 }
 
-int monary_load_oid_value(const bson_iter_t* bsonit,
-                          monary_column_item* citem,
-                          int idx)
+int monary_load_objectid_value(const bson_iter_t* bsonit,
+                               monary_column_item* citem,
+                               int idx)
 {
     if (BSON_ITER_HOLDS_OID(bsonit)) {
         const OBJECTID* oid = bson_iter_oid(bsonit);
         OBJECTID* oidloc = ((OBJECTID*) citem->storage) + idx;
 
-        // Move over all 12 bytes. Faster than memcpy(3)?
         int i;
         for (i = 0; i < 12; i++) {
             oidloc->bytes[i] = oid->bytes[i];
@@ -387,7 +305,7 @@ int monary_load_datetime_value(const bson_iter_t* bsonit,
     }
 }
 
-int monary_load_utf8_value(const bson_iter_t* bsonit,
+int monary_load_string_value(const bson_iter_t* bsonit,
                            monary_column_item* citem,
                            int idx)
 {
@@ -458,27 +376,6 @@ int monary_load_document_value(const bson_iter_t *bsonit,
     }
 }
 
-int monary_load_array_value(const bson_iter_t *bsonit,
-                            monary_column_item *citem,
-                            int idx)
-{
-    const uint8_t *array;
-    uint32_t array_len;
-    uint8_t *dest;
-
-    if (BSON_ITER_HOLDS_ARRAY(bsonit)) {
-        bson_iter_array(bsonit, &array_len, &array);
-        if (array_len > citem->type_arg) {
-            array_len = citem->type_arg;
-        }
-        dest = ((uint8_t *) citem->storage) + (idx * array_len);
-        return 1;
-    }
-    else {
-        return 0;
-    }
-}
-
 // XXX: Using bson_type_t
 int monary_load_type_value(const bson_iter_t *bsonit,
                            monary_column_item *citem,
@@ -502,9 +399,6 @@ int monary_load_size_value(const bson_iter_t *bsonit,
         case BSON_TYPE_UTF8:
             bson_iter_utf8(bsonit, &length);
             break;
-        case BSON_TYPE_ARRAY:
-            bson_iter_array(bsonit, &size, &discard);
-            break;
         case BSON_TYPE_BINARY:
             bson_iter_binary(bsonit, &discard, &size, &discard);
             break;
@@ -523,16 +417,6 @@ case TYPENAME:                                      \
 success = TYPEFUNC(bsonit, citem, offset);    \
 break;
 
-// DOUBLE
-// UTF8
-// DOCUMENT
-// OID
-// BOOL
-// DATE_TIME
-// INT32
-// INT64
-// ARRAY
-
 int monary_load_item(const bson_iter_t* bsonit,
                      monary_column_item* citem,
                      int offset)
@@ -540,7 +424,7 @@ int monary_load_item(const bson_iter_t* bsonit,
     int success = 0;
 
     switch(citem->type) {
-        MONARY_DISPATCH_TYPE(TYPE_OBJECTID, monary_load_oid_value)
+        MONARY_DISPATCH_TYPE(TYPE_OBJECTID, monary_load_objectid_value)
         MONARY_DISPATCH_TYPE(TYPE_DATETIME, monary_load_datetime_value)
         MONARY_DISPATCH_TYPE(TYPE_BOOL, monary_load_bool_value)
 
@@ -557,10 +441,9 @@ int monary_load_item(const bson_iter_t* bsonit,
         MONARY_DISPATCH_TYPE(TYPE_FLOAT32, monary_load_float32_value)
         MONARY_DISPATCH_TYPE(TYPE_FLOAT64, monary_load_float64_value)
 
-        MONARY_DISPATCH_TYPE(TYPE_UTF8, monary_load_utf8_value)
+        MONARY_DISPATCH_TYPE(TYPE_UTF8, monary_load_string_value)
         MONARY_DISPATCH_TYPE(TYPE_BINARY, monary_load_binary_value)
         MONARY_DISPATCH_TYPE(TYPE_DOCUMENT, monary_load_document_value)
-        MONARY_DISPATCH_TYPE(TYPE_ARRAY, monary_load_array_value)
     }
 
     return success;
