@@ -220,10 +220,14 @@ class Monary(object):
            credentials exist, this defaults to the "admin" database. See
            mongoc_uri(7).
            :param options: Connection-specific options in valid URI format.
+
+           :returns: True if successful; false otherwise.
+           :rtype: bool
         """
         self._cmonary = cmonary
         self._connection = None
-        self._collection = None
+        self._host = None
+        self._port = None
         self.connect(host, port, username, password, database, options)
             
     def connect(self, host="localhost", port=27017, username=None,
@@ -239,9 +243,28 @@ class Monary(object):
            credentials exist, this defaults to the "admin" database. See
            mongoc_uri(7).
            :param options: Connection-specific options in valid URI format.
+
+           :returns: True if successful; false otherwise.
+           :rtype: bool
         """
         if self._connection is not None:
             self.close()
+
+        # Either store the value of host or load the previous if None
+        if host is not None:
+            self._host = host
+        elif self._host is None:
+            raise ValueError("A host must be specified")
+        else:
+            host = self._host
+
+        # Either store the value of port or load the previous if None
+        if port is not None:
+            self._port = port
+        elif self._port is None:
+            raise ValueError("A port must be specified")
+        else:
+            port = self._port
 
         # First, build up the URI string.
         uri = ["mongodb://"]
@@ -262,27 +285,23 @@ class Monary(object):
 
         # Attempt the connection
         self._connection = cmonary.monary_connect("".join(uri))
-        if self._connection is None:
-            raise Exception("Failed to connect to database %s" % uri)
+        return (self._connection is not None)
 
-    def use_collection(self, db, collection):
-        """Use the specified collection to query against.
-        
+    def authenticate(self, db, user, passwd):
+        """ *Deprecated* Connects to the last given db on the last host and
+           port that had an attempted connection. Due to the new C driver,
+           the __init__ or connect methods are prefered
+
             :param db: name of database
             :param collection: name of collection
-            
+
             :returns: True if successful; false otherwise.
             :rtype: bool
         """
-        assert self._connection is not None, "Not connected"
-        if self._collection is not None:
-            cmonary.monary_destroy_collection(self._collection)
-
-        self._collection = cmonary.monary_use_collection(self._connection,
-                                                         db,
-                                                         collection)
-        success = (self._collection is not None)
-        return success
+        assert self._host is not None, "Not connected"
+        assert self._port is not None, "Not connected"
+        return connect(self, host=None, port=None, username=user,
+                       password=passwd, database=db, options=None)
 
     def _make_column_data(self, fields, types, count):
         """Builds the 'column data' structure used by the underlying cmonary code to
