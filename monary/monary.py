@@ -220,9 +220,6 @@ class Monary(object):
            credentials exist, this defaults to the "admin" database. See
            mongoc_uri(7).
            :param options: Connection-specific options in valid URI format.
-
-           :returns: True if successful; false otherwise.
-           :rtype: bool
         """
 
         self._cmonary = cmonary
@@ -298,7 +295,8 @@ class Monary(object):
            the __init__ or connect methods are prefered
 
             :param db: name of database
-            :param collection: name of collection
+            :param user: name of authenticating user
+            :param passwd: password for user
 
             :returns: True if successful; false otherwise.
             :rtype: bool
