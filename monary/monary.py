@@ -83,14 +83,13 @@ MONARY_TYPES = {
     "uint64":    (10, numpy.uint64),
     "float32":   (11, numpy.float32),
     "float64":   (12, numpy.float64),
-    "datetime":  (13, numpy.int64),
-    "timestamp": (14, numpy.uint64),
-    "string":    (15, "S"),
-    "binary":    (16, "<V"),            # Little-endian raw data (void pointer)
-    "bson":      (17, "<V"),
-    "type":      (18, numpy.uint8),
-    "size":      (19, numpy.uint32),
-    "length":    (20, numpy.uint32),
+    "date":      (13, numpy.uint64),
+    "string":    (14, "U"),
+    "binary":    (15, "<V"),            # Little-endian raw data (void pointer)
+    "bson":      (16, "<V"),
+    "type":      (17, numpy.uint8),
+    "size":      (18, numpy.uint32),
+    "length":    (19, numpy.uint32),
 }
 
 def get_monary_numpy_type(orig_typename):
