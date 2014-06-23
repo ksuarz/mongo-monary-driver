@@ -296,7 +296,7 @@ class Monary(object):
         
         numcols = len(fields)
         coldata = cmonary.monary_alloc_column_data(numcols, count)
-        assert coldata is not None, "Either out of memory, or 'count' is too large"
+        assert coldata is not None, "'count' is larger than the max value"
         colarrays = [ ]
         for i, (field, typename) in enumerate(zip(fields, types)):
 
