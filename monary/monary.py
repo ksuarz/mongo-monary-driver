@@ -212,7 +212,7 @@ class Monary(object):
                  password=None, database=None, options={}):
         """Initialize this connection with the given host and port.
         
-           :param host: host name (or IP) to connect
+           :param host: either host name (or IP) to connect to, or full URI
            :param port: port number of running MongoDB service on host
            :param username: An optional username for authentication.
            :param password: An optional password for authentication.
@@ -227,9 +227,6 @@ class Monary(object):
         self._connection = None
         self._collection_ns = ''
         self._collection = None
-        # Next two values are only used to continue support of authenticate
-        self._host = None
-        self._port = None
         self.connect(host, port, username, password, database, options)
         assert self._connection is not None, "Connection failed."
 
@@ -237,7 +234,7 @@ class Monary(object):
                 password=None, database=None, options={}):
         """Connects to the given host and port.
 
-           :param host: host name (or IP) to connect
+           :param host: either host name (or IP) to connect to, or full URI
            :param port: port number of running MongoDB service on host
            :param username: An optional username for authentication.
            :param password: An optional password for authentication.
@@ -254,60 +251,30 @@ class Monary(object):
         if self._connection is not None:
             self.close()
 
-        # Either store the value of host or load the previous if None
-        if host is not None:
-            self._host = host
-        elif self._host is None:
-            raise ValueError("A host must be specified")
+        if "mongodb://" in host:
+            uri = host
         else:
-            host = self._host
+            # Build up the URI string.
+            uri = ["mongodb://"]
+            if username is not None:
+                if password is None:
+                    uri.append("%s@" % username)
+                else:
+                    uri.append("%s:%s@" % (username, password))
+            elif password is not None:
+                raise ValueError("You cannot have a password with no username.")
 
-        # Either store the value of port or load the previous if None
-        if port is not None:
-            self._port = port
-        elif self._port is None:
-            raise ValueError("A port must be specified")
-        else:
-            port = self._port
+            uri.append("%s:%d" % (host, port))
 
-        # First, build up the URI string.
-        uri = ["mongodb://"]
-        if username is not None:
-            if password is None:
-                uri.append("%s@" % username)
-            else:
-                uri.append("%s:%s@" % (username, password))
-        elif password is not None:
-            raise ValueError("You cannot have a password with no username.")
-        
-        uri.append("%s:%d" % (host, port))
-
-        if database is not None:
-            uri.append("/%s" % database)
-        if len(options) > 0:
-            uri.append("?%s" % urlencode(options))
+            if database is not None:
+                uri.append("/%s" % database)
+            if len(options) > 0:
+                uri.append("?%s" % urlencode(options))
+            uri = "".join(uri)
 
         # Attempt the connection
-        self._connection = cmonary.monary_connect("".join(uri))
+        self._connection = cmonary.monary_connect(uri)
         return (self._connection is not None)
-
-    def authenticate(self, db, user, passwd):
-        """ *Deprecated* Connects to the last given db on the last host and
-           port that had an attempted connection. Due to the new C driver,
-           the __init__ or connect methods are prefered
-
-            :param db: name of database
-            :param user: name of authenticating user
-            :param passwd: password for user
-
-            :returns: True if successful; false otherwise.
-            :rtype: bool
-        """
-
-        assert self._host is not None, "Not connected"
-        assert self._port is not None, "Not connected"
-        return connect(self, host=None, port=None, username=user,
-                       password=passwd, database=db, options={}})
 
     def _make_column_data(self, fields, types, count):
         """Builds the 'column data' structure used by the underlying cmonary code to
