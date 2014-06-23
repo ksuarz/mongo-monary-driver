@@ -1,14 +1,16 @@
 # Monary - Copyright 2011-2014 David J. C. Beach
 # Please see the included LICENSE.TXT and NOTICE.TXT for licensing information.
 
-import glob
+import os
 import platform
+import subprocess
 from distutils.core import setup, Command
 from distutils.command.build import build
 from distutils.ccompiler import new_compiler
 
 DEBUG = False
 
+# TODO: New version number, presumably?
 VERSION = "0.2.3"
 
 # Hijack the build process by inserting specialized commands into
@@ -17,6 +19,7 @@ build.sub_commands = [ ("build_cmongo", None), ("build_cmonary", None) ] + build
 
 # Platform specific stuff
 if platform.system() == 'Windows':
+    # TODO: Discuss this with David...
     compiler_kw = {'compiler' : 'mingw32'}
     linker_kw = {'libraries' : ['ws2_32']}
     so_target = 'cmonary.dll'
@@ -28,15 +31,19 @@ else:
 compiler = new_compiler(**compiler_kw)
 
 MONARY_DIR = "monary/"
-CMONGO_SRC = "mongodb-mongo-c-driver-74cc0b8/src/"
+CMONGO_SRC = "mongodb-mongo-c-driver-0.96.2/"
 CFLAGS = ["--std=c99", "-fPIC", "-O2"]
 
 if not DEBUG:
     CFLAGS.append("-DNDEBUG")
 
+class BuildException(Exception):
+    """Indicates an error occurred while compiling from source."""
+    pass
+
 # I suspect I could be using the build_clib command for this, but don't know how.
 class BuildCMongoDriver(Command):
-    """Custom command to build the C Mongo driver."""
+    """Custom command to build the C Mongo driver. Relies on autotools."""
     description = "builds the C Mongo driver"
     user_options = [ ]
     def initialize_options(self):
@@ -44,10 +51,19 @@ class BuildCMongoDriver(Command):
     def finalize_options(self):
         pass
     def run(self):
-        CMONGO_UNITS = glob.glob(CMONGO_SRC + "*.c")
-        CMONGO_OBJECTS = [ f[:-2] + ".o" for f in CMONGO_UNITS ]
-        compiler.compile(CMONGO_UNITS, extra_preargs=CFLAGS, include_dirs=[CMONGO_SRC])
-        compiler.create_static_lib(CMONGO_OBJECTS, "mongo", CMONGO_SRC)
+        try:
+            # chdir(2) should not fail except under exceptional circumstances (directory deleted, etc.)
+            os.chdir(CMONGO_SRC)
+            status = subprocess.call(["./configure", "--enable-static", "--without-documentation"])
+            # TODO: What kind of exception do you want? Could just use regular old exception
+            if status != 0:
+                raise BuildException("configure script failed with exit status {0}.".format(status))
+
+            status = subprocess.call(["make"])
+            if status != 0:
+                raise BuildException("make failed with exit status {0}".format(status))
+        finally:
+            os.chdir("..")
 
 class BuildCMonary(Command):
     """Custom command to build the cmonary library, static linking to the cmongo drivers,
@@ -60,9 +76,11 @@ class BuildCMonary(Command):
     def finalize_options(self):
         pass
     def run(self):
+        # TODO: Test for portability; specifically the directory specification.
+        # Might have to use os.sep.join(["path", "to", "dir"])
         compiler.compile([MONARY_DIR + "cmonary.c"],
                          extra_preargs=CFLAGS,
-                         include_dirs=[CMONGO_SRC])
+                         include_dirs=[CMONGO_SRC + "src/mongoc", CMONGO_SRC + "src/libbson/src/bson"])
         compiler.link_shared_lib([MONARY_DIR + "cmonary.o", CMONGO_SRC + "libmongo.a"],
                                  "cmonary", "monary", **linker_kw)
 
