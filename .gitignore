@@ -1,0 +1,8 @@
+*.pyc
+*.o
+*.a
+*.so
+*.dylib
+build/*
+._*
+*.DS_Store
