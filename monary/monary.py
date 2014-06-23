@@ -3,6 +3,7 @@
 
 import os.path
 import platform
+from urllib import urlencode
 from ctypes import *
 
 try:
@@ -208,7 +209,7 @@ class Monary(object):
     """Represents a 'monary' connection to a particular MongoDB server."""
     
     def __init__(self, host="localhost", port=27017, username=None,
-                 password=None, database=None, options=None):
+                 password=None, database=None, options={}):
         """Initialize this connection with the given host and port.
         
            :param host: host name (or IP) to connect
@@ -219,7 +220,7 @@ class Monary(object):
            specifies a username and password. If this is not specified but
            credentials exist, this defaults to the "admin" database. See
            mongoc_uri(7).
-           :param options: Connection-specific options in valid URI format.
+           :param options: Connection-specific options as a dict.
         """
 
         self._cmonary = cmonary
@@ -230,9 +231,10 @@ class Monary(object):
         self._host = None
         self._port = None
         self.connect(host, port, username, password, database, options)
-            
+        assert self._connection is not None, "Connection failed."
+
     def connect(self, host="localhost", port=27017, username=None,
-                password=None, database=None, options=None):
+                password=None, database=None, options={}):
         """Connects to the given host and port.
 
            :param host: host name (or IP) to connect
@@ -243,7 +245,7 @@ class Monary(object):
            specifies a username and password. If this is not specified but
            credentials exist, this defaults to the "admin" database. See
            mongoc_uri(7).
-           :param options: Connection-specific options in valid URI format.
+           :param options: Connection-specific options as a dict.
 
            :returns: True if successful; false otherwise.
            :rtype: bool
@@ -282,8 +284,8 @@ class Monary(object):
 
         if database is not None:
             uri.append("/%s" % database)
-        if options is not None:
-            uri.append("?%s" % options)
+        if len(options) > 0:
+            uri.append("?%s" % urlencode(options))
 
         # Attempt the connection
         self._connection = cmonary.monary_connect("".join(uri))
@@ -305,7 +307,7 @@ class Monary(object):
         assert self._host is not None, "Not connected"
         assert self._port is not None, "Not connected"
         return connect(self, host=None, port=None, username=user,
-                       password=passwd, database=db, options=None)
+                       password=passwd, database=db, options={}})
 
     def _make_column_data(self, fields, types, count):
         """Builds the 'column data' structure used by the underlying cmonary code to
