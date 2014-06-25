@@ -548,7 +548,7 @@ int monary_bson_to_arrays(monary_column_data* coldata,
  * Performs a count query on a MongoDB collection.
  *
  * @param collection The MongoDB collection to query against.
- * @param query A valid JSON-compatible UTF-8 string query.
+ * @param query A pointer to a BSON buffer representing the query.
  *
  * @return If unsuccessful, returns -1; otherwise, returns the number of
  * documents counted.
@@ -616,8 +616,7 @@ void monary_get_bson_fields_list(monary_column_data* coldata,
  * @param collection The MongoDB collection to query against.
  * @param offset The number of documents to skip, or zero.
  * @param limit The maximum number of documents to return, or zero.
- * @param query A valid JSON-compatible UTF-8 string query. This function does
- * no validation, so you should ensure that the query is well-formatted.
+ * @param query A pointer to a BSON buffer representing the query.
  * @param coldata The column data to store the results in.
  * @param select_fields If truthy, select exactly the fields from the database
  * that match the fields in coldata. If false, the query will find and return
