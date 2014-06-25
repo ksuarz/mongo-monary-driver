@@ -9,19 +9,7 @@
 #include "bson.h"
 
 #ifndef NDEBUG
-#define FIRST(...) FIRST_HELPER(__VA_ARGS__, throwaway)
-#define FIRST_HELPER(first, ...) first
-#define REST(...) REST_HELPER(NUM(__VA_ARGS__), __VA_ARGS__)
-#define REST_HELPER(qty, ...) REST_HELPER2(qty, __VA_ARGS__)
-#define REST_HELPER2(qty, ...) REST_HELPER_##qty(__VA_ARGS__)
-#define REST_HELPER_ONE(first)
-#define REST_HELPER_TWOORMORE(first, ...) , __VA_ARGS__
-#define NUM(...) \
-    SELECT_10TH(__VA_ARGS__, TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE,\
-                TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE, ONE, throwaway)
-#define SELECT_10TH(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, ...) a10
-
-#define DEBUG(...) fprintf(stderr, "[DEBUG] %s:%i " FIRST(__VA_ARGS__) "\n", __FILE__, __LINE__ REST(__VA_ARGS__))
+#define DEBUG(format, ...) fprintf(stderr, "[DEBUG] %s:%i " format "\n", __FILE__, __LINE__, __VA_ARGS__)
 #else
 #define DEBUG(...)
 #endif
@@ -71,10 +59,10 @@ mongoc_client_t *monary_connect(const char *uri) {
     DEBUG("Attempting connection to: %s", uri);
     client = mongoc_client_new(uri);
     if (client) {
-        DEBUG("Connection successful.");
+        DEBUG("%s", "Connection successful");
     }
     else {
-        DEBUG("An error occurred while attempting to connect to %s\n", uri);
+        DEBUG("An error occurred while attempting to connect to %s", uri);
     }
     return client;
 }
@@ -656,7 +644,7 @@ monary_cursor* monary_init_query(mongoc_collection_t *collection,
         // Initialize BSON on the heap, as it will grow
         fields_bson = bson_new();
         if (!fields_bson) {
-            DEBUG("An error occurred while allocating memory for BSON data.");
+            DEBUG("%s", "An error occurred while allocating memory for BSON data");
             return NULL;
         }
         monary_get_bson_fields_list(coldata, &query_bson);
@@ -677,7 +665,7 @@ monary_cursor* monary_init_query(mongoc_collection_t *collection,
     if(fields_bson) { bson_destroy(fields_bson); }
 
     if (!mcursor) {
-        DEBUG("An error occurred with the query.");
+        DEBUG("%s", "An error occurred with the query");
         return NULL;
     }
 
