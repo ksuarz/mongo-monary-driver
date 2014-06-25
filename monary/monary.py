@@ -57,6 +57,8 @@ FUNCDEFS = [
     "monary_close_query:P:0",
 ]
 
+MAX_COLUMNS = 1024
+
 def _decorate_cmonary_functions():
     """Decorates each of the cmonary functions with their argument and result types."""
     for funcdef in FUNCDEFS:
@@ -227,8 +229,8 @@ class Monary(object):
         self._connection = None
         self._collection_ns = ''
         self._collection = None
-        self.connect(host, port, username, password, database, options)
-        assert self._connection is not None, "Connection failed."
+        if not self.connect(host, port, username, password, database, options):
+            raise Warning("Connection failed.")
 
     def connect(self, host="localhost", port=27017, username=None,
                 password=None, database=None, options={}):
@@ -293,10 +295,10 @@ class Monary(object):
 
         if len(fields) != len(types):
             raise ValueError("number of fields and types do not match")
-        
         numcols = len(fields)
+        if numcols > MAX_COLUMNS:
+            raise ValueError("number of fields exceeds maximum of %d" % MAX_COLUMNS)
         coldata = cmonary.monary_alloc_column_data(numcols, count)
-        assert coldata is not None, "'count' is larger than the max value"
         colarrays = [ ]
         for i, (field, typename) in enumerate(zip(fields, types)):
 
@@ -324,12 +326,13 @@ class Monary(object):
             :returns: True if successful; false otherwise
             :rtype: bool
         """
-        assert self._connection is not None, "Not connected"
         if self._collection is not None:
             if self._collection_ns != db + '.' + collection:
                 cmonary.monary_destroy_collection(self._collection)
             else:
                 return True
+        else:
+            raise ValueError("failed to get collection %s.%s - not connected" % (db, coll))
 
         self._collection = cmonary.monary_use_collection(self._connection,
                                                          db,
@@ -349,7 +352,7 @@ class Monary(object):
            :rtype: int
         """
         if not self._get_collection(db, coll):
-            raise ValueError("unable to get the collection")
+            raise ValueError("couldn't connect to collection %s.%s" % (db, coll))
         query = make_bson(query)
         return cmonary.monary_query_count(self._collection, query)
 
