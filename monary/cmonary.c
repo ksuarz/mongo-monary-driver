@@ -261,8 +261,7 @@ int monary_load_bool_value(const bson_iter_t* bsonit,
                            int idx)
 {
     bool value = bson_iter_bool(bsonit);
-    bool *dest = (citem->storage) + idx;
-    memcpy(dest, &value, sizeof(bool));
+    memcpy(((bool *) citem->storage) + idx, &value, sizeof(bool));
     return 1;
 }
 
@@ -274,13 +273,11 @@ int FUNCNAME (const bson_iter_t *bsonit,                                        
     NUMTYPE temp;                                                                 \
     ORIGTYPE value;                                                               \
     if (VERIFIER(bsonit)) {                                                       \
-        DEBUG("Loading %s from MongoDB to the array", citem->field);              \
         value = BSONFUNC(bsonit);                                                 \
         temp = (NUMTYPE) value;                                                   \
-        memcpy(((NUMTYPE *) citem->storage) + idx, &temp, sizeof(NUMTYPE));                     \
+        memcpy(((NUMTYPE *) citem->storage) + idx, &temp, sizeof(NUMTYPE));       \
         return 1;                                                                 \
     } else {                                                                      \
-        DEBUG("Field %s is not of the correct type - Monary type %d", citem->field, citem->type);                \
         return 0;                                                                 \
     }                                                                             \
 }
