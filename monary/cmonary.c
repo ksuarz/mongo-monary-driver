@@ -307,7 +307,7 @@ int monary_load_datetime_value(const bson_iter_t* bsonit,
 {
     if (BSON_ITER_HOLDS_DATE_TIME(bsonit)) {
         int64_t value = bson_iter_date_time(bsonit);
-        memcpy(citem->storage + idx, &value, sizeof(int64_t));
+        memcpy(((int64_t *) citem->storage) + idx, &value, sizeof(int64_t));
         return 1;
     } else {
         return 0;
@@ -527,8 +527,8 @@ int monary_bson_to_arrays(monary_column_data* coldata,
     bson_iter_t bsonit;
     const char *field;
     int i;
-    int num_masked = 0;
     int success;
+    int fields_found;
     monary_column_item *citem;
 
     if (!coldata || !bson_data) {
@@ -544,10 +544,18 @@ int monary_bson_to_arrays(monary_column_data* coldata,
         return -1;
     }
 
-    while (bson_iter_next(&bsonit)) {
+    // Mask all the values by default
+    for (i = 0; i < coldata->num_columns; i++) {
+        citem = coldata->columns + i;
+        if (citem->mask != NULL) {
+            citem->mask[row] = 1;
+        }
+    }
+
+    fields_found = 0;
+    while (bson_iter_next(&bsonit) && fields_found < coldata->num_columns) {
         field = bson_iter_key(&bsonit);
-        success = -1;
-        DEBUG("Found document field: %s", field);
+        success = 0;
 
         // Find the corresponding column
         for (i = 0; i < coldata->num_columns; i++) {
@@ -555,27 +563,19 @@ int monary_bson_to_arrays(monary_column_data* coldata,
 
             // Load the item, whose type should match the storage specified
             if (strcmp(field, citem->field) == 0) {
-                DEBUG("Found a match in array data: %s", citem->field);
                 success = monary_load_item(&bsonit, citem, row);
+                ++fields_found;
+
+                // Record success in the mask, if applicable
+                if (citem->mask != NULL) {
+                    citem->mask[row] = !success;
+                }
                 break;
             }
         }
-
-        // Record success in the mask, if applicable
-        if (citem->mask != NULL) {
-            citem->mask[row] = !success;
-        }
-
-        // Tally the number of failed loads
-        if (success == -1) {
-            DEBUG("%s", "Skipped a field");
-        }
-        else if (success == 0) {
-            ++num_masked;
-        }
     }
 
-    return num_masked;
+    return coldata->num_columns - fields_found;
 }
 
 /**
