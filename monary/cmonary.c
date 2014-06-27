@@ -272,9 +272,21 @@ inline int monary_load_timestamp_value(bson_iterator* bsonit,
                                        monary_column_item* citem,
                                        int idx)
 {
-    if(type == bson_timestamp) {
-        bson_timestamp_t value = bson_iterator_timestamp(bsonit);
-        ((UINT64*) citem->storage)[idx] = *((INT64*) &value);
+    char *dest;         // A pointer to the final location of the array in mem
+    const char *src;    // Pointer to immutable buffer
+    uint32_t stringlen; // The size of the string according to iter_utf8
+    size_t width;
+
+    if (BSON_ITER_HOLDS_UTF8(bsonit)) {
+        DEBUG("Loading %s from MongoDB to the array", citem->field);
+        src = bson_iter_utf8(bsonit, &stringlen);
+        stringlen++;
+        width = citem->type_arg;
+        if (stringlen > width) {
+            stringlen = width;
+        }
+        dest = ((char*) citem->storage) + (idx * width);
+        bson_strncpy(dest, src, stringlen);
         return 1;
     } else {
         return 0;
@@ -462,8 +474,7 @@ int monary_bson_to_arrays(monary_column_data* coldata,
         // tally number of masked (unsuccessful) loads
         if(!success) { ++num_masked; }
     }
-    
-    return num_masked;
+    return coldata->num_columns - found;
 }
 
 long monary_query_count(mongo_connection* connection,

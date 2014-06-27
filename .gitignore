@@ -6,3 +6,6 @@
 build/*
 ._*
 *.DS_Store
+data
+dist
+MANIFEST
