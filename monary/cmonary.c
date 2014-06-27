@@ -72,7 +72,39 @@ mongoc_client_t *monary_connect(const char *uri) {
  */
 void monary_disconnect(mongoc_client_t* client)
 {
+    DEBUG("%s", "Closing mongoc_client");
     mongoc_client_destroy(client);
+}
+
+/**
+ * Use a particular database and collection from the given MongoDB client.
+ *
+ * @param client A mongoc_client_t that has been properly connected to with
+ * mongoc_client_new().
+ * @param db A valid ASCII C string for the name of the database.
+ * @param collection A valid ASCII C string for the collection name.
+ *
+ * @return If successful, a mongoc_collection_t that can be queried against
+ * with mongoc_collection_find(3).
+ */
+mongoc_collection_t *monary_use_collection(mongoc_client_t *client,
+                                           const char *db,
+                                           const char *collection)
+{
+    return mongoc_client_get_collection(client, db, collection);
+}
+
+/**
+ * Destroys the given collection, allowing you to connect to another one.
+ *
+ * @param collection The collection to destroy.
+ */
+void monary_destroy_collection(mongoc_collection_t *collection)
+{
+    if (collection) {
+        DEBUG("%s", "Closing mongoc_collection");
+        mongoc_collection_destroy(collection);
+    }
 }
 
 /**
@@ -138,6 +170,8 @@ monary_column_data* monary_alloc_column_data(unsigned int num_columns,
     monary_column_data* result = (monary_column_data*) malloc(sizeof(monary_column_data));
     monary_column_item* columns = (monary_column_item*) calloc(num_columns, sizeof(monary_column_item));
 
+    DEBUG("%s", "Column data allocated");
+
     result->num_columns = num_columns;
     result->num_rows = num_rows;
     result->columns = columns;
@@ -197,10 +231,7 @@ int monary_set_column_item(monary_column_data* coldata,
     
     monary_column_item* col = coldata->columns + colnum;
 
-    col->field = (char*) malloc(len + 1);
-    if (!(col->field)) {
-        return 0;
-    }
+    col->field = (char*) malloc((len + 1) * sizeof(char));
     strcpy(col->field, field);
     
     col->type = type;
@@ -243,11 +274,13 @@ int FUNCNAME (const bson_iter_t *bsonit,                                        
     NUMTYPE temp;                                                                 \
     ORIGTYPE value;                                                               \
     if (VERIFIER(bsonit)) {                                                       \
+        DEBUG("Loading %s from MongoDB to the array", citem->field);              \
         value = BSONFUNC(bsonit);                                                 \
         temp = (NUMTYPE) value;                                                   \
-        memcpy(citem->storage + idx, &temp, sizeof(NUMTYPE));                     \
+        memcpy(((NUMTYPE *) citem->storage) + idx, &temp, sizeof(NUMTYPE));                     \
         return 1;                                                                 \
     } else {                                                                      \
+        DEBUG("Field %s is not of the correct type - Monary type %d", citem->field, citem->type);                \
         return 0;                                                                 \
     }                                                                             \
 }
@@ -429,7 +462,7 @@ int monary_load_length_value(const bson_iter_t *bsonit,
 
 #define MONARY_DISPATCH_TYPE(TYPENAME, TYPEFUNC)    \
 case TYPENAME:                                      \
-success = TYPEFUNC(bsonit, citem, offset);    \
+success = TYPEFUNC(bsonit, citem, offset);          \
 break;
 
 int monary_load_item(const bson_iter_t* bsonit,
@@ -437,6 +470,8 @@ int monary_load_item(const bson_iter_t* bsonit,
                      int offset)
 {
     int success = 0;
+    DEBUG("Dispatching %s as a %d", citem->field, citem->type);
+    DEBUG("Real bson type is : %d", bson_iter_type(bsonit));
 
     switch(citem->type) {
         MONARY_DISPATCH_TYPE(TYPE_OBJECTID, monary_load_objectid_value)
@@ -463,6 +498,9 @@ int monary_load_item(const bson_iter_t* bsonit,
         MONARY_DISPATCH_TYPE(TYPE_SIZE, monary_load_size_value)
         MONARY_DISPATCH_TYPE(TYPE_LENGTH, monary_load_length_value)
         MONARY_DISPATCH_TYPE(TYPE_TYPE, monary_load_type_value)
+        default:
+            DEBUG("%s does not match any Monary type", citem->field);
+            break;
     }
 
     return success;
@@ -494,18 +532,22 @@ int monary_bson_to_arrays(monary_column_data* coldata,
     monary_column_item *citem;
 
     if (!coldata || !bson_data) {
+        DEBUG("%s", "Array pointer or BSON data was NULL and could not be loaded.");
         return -1;
     }
     if (row > coldata->num_rows) {
+        DEBUG("Tried to load row %d, but that exceeds the maximum # of rows (%d)", row, coldata->num_rows);
         return -1;
     }
     if (!bson_iter_init(&bsonit, bson_data)) {
+        DEBUG("%s", "Failed to initialize a BSON iterator");
         return -1;
     }
 
     while (bson_iter_next(&bsonit)) {
         field = bson_iter_key(&bsonit);
-        success = 0;
+        success = -1;
+        DEBUG("Found document field: %s", field);
 
         // Find the corresponding column
         for (i = 0; i < coldata->num_columns; i++) {
@@ -513,6 +555,7 @@ int monary_bson_to_arrays(monary_column_data* coldata,
 
             // Load the item, whose type should match the storage specified
             if (strcmp(field, citem->field) == 0) {
+                DEBUG("Found a match in array data: %s", citem->field);
                 success = monary_load_item(&bsonit, citem, row);
                 break;
             }
@@ -524,7 +567,10 @@ int monary_bson_to_arrays(monary_column_data* coldata,
         }
 
         // Tally the number of failed loads
-        if (!success) {
+        if (success == -1) {
+            DEBUG("%s", "Skipped a field");
+        }
+        else if (success == 0) {
             ++num_masked;
         }
     }
@@ -547,11 +593,16 @@ int64_t monary_query_count(mongoc_collection_t *collection,
     bson_error_t error;     // A location for BSON errors
     bson_t query_bson;      // The query converted to BSON format
     int64_t total_count;    // The number of documents counted
+    uint32_t query_size;     // Length of the query in bytes
+
+    DEBUG("%s", "Starting Monary count");
 
     // build BSON query data
+    memcpy(&query_size, query, sizeof(uint32_t));
     if (!bson_init_static(&query_bson,
                           query,
-                          bson_strnlen(query, MONARY_MAX_QUERY_LENGTH))) {
+                          query_size)) {
+        DEBUG("%s", "Failed to initialize raw BSON query");
         return -1;
     }
     
@@ -568,6 +619,7 @@ int64_t monary_query_count(mongoc_collection_t *collection,
         DEBUG("error: %d.%d %s", error.domain, error.code, error.message);
     }
 
+    DEBUG("Got count from libmongoc: %lld", total_count);
     return total_count;
 }
 
@@ -624,6 +676,7 @@ monary_cursor* monary_init_query(mongoc_collection_t *collection,
     bson_t query_bson;          // BSON representing the query to perform
     bson_t *fields_bson;        // BSON holding the fields to select
     mongoc_cursor_t *mcursor;   // A MongoDB cursor
+    int32_t query_size;
 
     // Sanity checks
     if (!collection || !query || !coldata) {
@@ -631,9 +684,11 @@ monary_cursor* monary_init_query(mongoc_collection_t *collection,
     }
 
     // build BSON query data
+    memcpy(&query_size, query, sizeof(int32_t));
     if (!bson_init_static(&query_bson,
                           query,
-                          bson_strnlen(query, MONARY_MAX_QUERY_LENGTH))) {
+                          query_size)) {
+        DEBUG("%s", "Failed to initialize raw BSON query");
         return NULL;
     }
     fields_bson = NULL;
@@ -738,6 +793,7 @@ int monary_load_query(monary_cursor* cursor)
 void monary_close_query(monary_cursor* cursor)
 {
     if (cursor) {
+        DEBUG("%s", "Closing query");
         mongoc_cursor_destroy(cursor->mcursor);
         free(cursor);
     }
