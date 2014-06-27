@@ -33,6 +33,7 @@ def _load_cmonary_lib():
 
 _load_cmonary_lib()
 
+# TODO Array?
 CTYPE_CODES = {
     "P": c_void_p,    # pointer
     "S": c_char_p,    # string
@@ -43,16 +44,18 @@ CTYPE_CODES = {
 }
 
 # List of C function definitions from the cmonary library
+# TODO Needs to be updated
 FUNCDEFS = [
     # format: "func_name:arg_types:return_type"
-    "monary_connect:SI:P",
-    "monary_authenticate:PSSS:I",
+    "monary_connect:S:P",
     "monary_disconnect:P:0",
+    "monary_use_collection:PSS:P",
+    "monary_destroy_collection:P:0",
     "monary_alloc_column_data:UU:P",
     "monary_free_column_data:P:I",
     "monary_set_column_item:PUSUUPP:I",
-    "monary_query_count:PSSS:L",
-    "monary_init_query:PSSIIPI:P",
+    "monary_query_count:PP:L",
+    "monary_init_query:PUUPPI:P",
     "monary_load_query:P:I",
     "monary_close_query:P:0",
 ]
@@ -85,13 +88,12 @@ MONARY_TYPES = {
     "float32":   (11, numpy.float32),
     "float64":   (12, numpy.float64),
     "date":      (13, numpy.uint64),
-    "timestamp": (14, numpy.uint64),
-    "string":    (15, "S"),
-    "binary":    (16, "<V"),
-    "bson":      (17, "<V"),
-    "type":      (18, numpy.uint8),
-    "size":      (19, numpy.uint32),
-    "length":    (20, numpy.uint32),
+    "string":    (14, "U"),
+    "binary":    (15, "<V"),            # Little-endian raw data (void pointer)
+    "bson":      (16, "<V"),
+    "type":      (17, numpy.uint8),
+    "size":      (18, numpy.uint32),
+    "length":    (19, numpy.uint32),
 }
 
 def get_monary_numpy_type(orig_typename):
@@ -119,7 +121,7 @@ def get_monary_numpy_type(orig_typename):
         try:
             type_arg = int(arg)
         except ValueError:
-            raise ValueError("unable to parse type argnument in: %r" % orig_typename)
+            raise ValueError("unable to parse type argument in: %r" % orig_typename)
     else:
         type_arg = 0
         type_name = orig_typename
@@ -138,7 +140,8 @@ def get_monary_numpy_type(orig_typename):
 
 def make_bson(obj):
     """Given a Python (JSON compatible) dictionary, returns a BSON string.
-    
+
+    TODO
        (This hijacks the Python -> BSON conversion code from pymongo, which is needed for
        converting queries.  Perhaps this dependency can be removed in a later version.)
 
@@ -326,13 +329,13 @@ class Monary(object):
             :returns: True if successful; false otherwise
             :rtype: bool
         """
-        if self._collection is not None:
+        if self._connection is not None:
             if self._collection_ns != db + '.' + collection:
                 cmonary.monary_destroy_collection(self._collection)
             else:
                 return True
         else:
-            raise ValueError("failed to get collection %s.%s - not connected" % (db, coll))
+            raise ValueError("failed to get collection %s.%s - not connected" % (db, collection))
 
         self._collection = cmonary.monary_use_collection(self._connection,
                                                          db,
@@ -354,7 +357,11 @@ class Monary(object):
         if not self._get_collection(db, coll):
             raise ValueError("couldn't connect to collection %s.%s" % (db, coll))
         query = make_bson(query)
-        return cmonary.monary_query_count(self._collection, query)
+        count = cmonary.monary_query_count(self._collection, query)
+        if count < 0:
+            # TODO
+            raise Exception("MongoDB C driver db.collection.count returned a negative value :(")
+        return count
 
     def query(self, db, coll, query, fields, types,
               sort=None, hint=None,
@@ -395,7 +402,6 @@ class Monary(object):
         coldata = None
         try:
             coldata, colarrays = self._make_column_data(fields, types, count)
-            ns = "%s.%s" % (db, coll)
             cursor = None
             try:
                 if not self._get_collection(db, coll):
@@ -415,12 +421,15 @@ class Monary(object):
                     sort=None, hint=None,
                     block_size=8192, limit=0, offset=0,
                     select_fields=False):
-        """Performs a block query --- a query whose results are returned in
+        """Performs a block query.
+
+        TODO more documentation (params)
+        
+           A block query is a query whose results are returned in
            blocks of a given size.  Instead of returning a list of arrays, this generator
            yields portions of each array in multiple blocks, where each block may contain
-           up to *block_size* elements.  For documentation of all other arguments, see
-           the `query` method.
-        
+           up to *block_size* elements.
+
            An example::
         
                cumulative_gain = 0.0
@@ -445,11 +454,12 @@ class Monary(object):
         coldata = None
         try:
             coldata, colarrays = self._make_column_data(fields, types, block_size)
-            ns = "%s.%s" % (db, coll)
             cursor = None
             try:
-                cursor = cmonary.monary_init_query(self._connection, ns, full_query, limit, offset,
-                                                   coldata, select_fields)
+                if not self._get_collection(db, coll):
+                    raise ValueError("unable to get the collection")
+                cursor = cmonary.monary_init_query(self._collection, offset, limit,
+                                                   full_query, coldata, select_fields)
                 while True:
                     num_rows = cmonary.monary_load_query(cursor)
                     if num_rows == block_size:
