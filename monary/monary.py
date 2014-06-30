@@ -86,7 +86,7 @@ MONARY_TYPES = {
     "float32":   (11, numpy.float32),
     "float64":   (12, numpy.float64),
     "date":      (13, numpy.int64),
-    "string":    (14, "S"),
+    "string":    (14, "S"),             # The length argument here INCLUDES the null character
     "binary":    (15, "<V"),            # Little-endian raw data (void pointer)
     "bson":      (16, "<V"),
     "type":      (17, numpy.uint8),
@@ -356,8 +356,7 @@ class Monary(object):
         query = make_bson(query)
         count = cmonary.monary_query_count(self._collection, query)
         if count < 0:
-            # TODO
-            raise Exception("MongoDB C driver db.collection.count returned a negative value :(")
+            raise RuntimeError("MongoDB C driver db.collection.count returned a negative value :(")
         return count
 
     def query(self, db, coll, query, fields, types,
@@ -420,8 +419,22 @@ class Monary(object):
                     select_fields=False):
         """Performs a block query.
 
-        TODO more documentation (params)
-        
+           :param db: name of database
+           :param coll: name of the collection to be queried
+           :param query: dictionary of Mongo query parameters
+           :param fields: list of fields to be extracted from each record
+           :param types: corresponding list of field types
+           :param sort: (optional) single field name or list of (field, direction) pairs
+           :param hint: (optional) single field name or list of (field, direction) pairs
+           :param block_size: (optional) size in number of rows of each yeilded list 
+           :param limit: (optional) limit number of records (and size of arrays)
+           :param offset: (optional) skip this many records before gathering results
+           :param bool select_fields: select exact fields from database
+                                      (performance/bandwidth tradeoff)
+
+           :returns: list of numpy.ndarray, corresponding to the requested fields and types
+           :rtype: list
+
            A block query is a query whose results are returned in
            blocks of a given size.  Instead of returning a list of arrays, this generator
            yields portions of each array in multiple blocks, where each block may contain
@@ -455,6 +468,7 @@ class Monary(object):
             try:
                 if not self._get_collection(db, coll):
                     raise ValueError("unable to get the collection")
+                # TODO is this correct?
                 cursor = cmonary.monary_init_query(self._collection, offset, limit,
                                                    full_query, coldata, select_fields)
                 while True:
@@ -475,6 +489,7 @@ class Monary(object):
 
     def close(self):
         """Destroy the current collection, if any."""
+        self._collection_ns = ""
         if self._collection is not None:
             cmonary.monary_destroy_collection(self._collection)
             self._collection = None

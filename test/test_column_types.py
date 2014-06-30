@@ -12,6 +12,7 @@ except ImportError:
 import bson
 import pymongo
 import monary
+import nose
 
 NUM_TEST_RECORDS = 100
 
@@ -84,7 +85,8 @@ def check_uint_column(coltype):
 def check_float_column(coltype):
     data = get_monary_column("floatval", coltype)
     expected = get_record_values("floatval")
-    assert data == expected
+    for d, e in zip(data, expected):
+        nose.tools.assert_almost_equal((d-e)/max(d,e), 0, places=5)
 
 def test_int_columns():
     for coltype in ["int8", "int16", "int32", "int64"]:
@@ -113,7 +115,8 @@ def test_date_column():
     assert [monary.mongodate_to_datetime(x) for x in column] == expected
 
 def test_string_column():
-    data = get_monary_column("stringval", "string:5")
+    # TODO figure out what to do with the null character
+    data = get_monary_column("stringval", "string:6")
     expected = get_record_values("stringval")
     assert data == expected
 
