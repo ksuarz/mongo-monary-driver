@@ -266,76 +266,54 @@ int monary_load_bool_value(const bson_iter_t* bsonit,
 }
 
 
-#define MONARY_DEFINE_NUM_LOADER(FUNCNAME, NUMTYPE, ORIGTYPE, BSONFUNC, VERIFIER) \
-int FUNCNAME (const bson_iter_t *bsonit,                                          \
-              monary_column_item *citem,                                          \
-              int idx)                                                            \
-{                                                                                 \
-    NUMTYPE value;                                                                \
-    if (VERIFIER(bsonit)) {                                                       \
-        value = (NUMTYPE) BSONFUNC(bsonit);                                       \
-        memcpy(((NUMTYPE *) citem->storage) + idx, &value, sizeof(NUMTYPE));      \
-        return 1;                                                                 \
-    } else {                                                                      \
-        return 0;                                                                 \
-    }                                                                             \
+#define MONARY_DEFINE_FLOAT_LOADER(FUNCNAME, NUMTYPE)                           \
+int FUNCNAME (const bson_iter_t *bsonit,                                        \
+              monary_column_item *citem,                                        \
+              int idx)                                                          \
+{                                                                               \
+    NUMTYPE value;                                                              \
+    if (BSON_ITER_HOLDS_DOUBLE(bsonit)) {                                       \
+        value = (NUMTYPE) bson_iter_double(bsonit);                             \
+        memcpy(((NUMTYPE *) citem->storage) + idx, &value, sizeof(NUMTYPE));    \
+        return 1;                                                               \
+    } else {                                                                    \
+        return 0;                                                               \
+    }                                                                           \
+}
+
+// Floating point
+MONARY_DEFINE_FLOAT_LOADER(monary_load_float32_value, float);
+MONARY_DEFINE_FLOAT_LOADER(monary_load_float64_value, double);
+
+#define MONARY_DEFINE_INT_LOADER(FUNCNAME, NUMTYPE, ORIGTYPE)               \
+int FUNCNAME (const bson_iter_t *bsonit,                                    \
+              monary_column_item *citem,                                    \
+              int idx)                                                      \
+{                                                                           \
+    NUMTYPE value;                                                          \
+    if (BSON_ITER_HOLDS_INT32(bsonit)) {                                    \
+        value = (NUMTYPE) bson_iter_int32(bsonit);                          \
+        memcpy(((NUMTYPE*) citem->storage) + idx, &value, sizeof(NUMTYPE)); \
+        return 1;                                                           \
+    } else if (BSON_ITER_HOLDS_INT64(bsonit)) {                             \
+        value = (NUMTYPE) bson_iter_int64(bsonit);                          \
+        memcpy(((NUMTYPE*) citem->storage) + idx, &value, sizeof(NUMTYPE)); \
+    } else {                                                                \
+        return 0;                                                           \
+    }                                                                       \
 }
 
 // Signed integers
-MONARY_DEFINE_NUM_LOADER(monary_load_int8_value, int8_t, int32_t, bson_iter_int32, BSON_ITER_HOLDS_INT32)
-MONARY_DEFINE_NUM_LOADER(monary_load_int16_value, int16_t, int32_t, bson_iter_int32, BSON_ITER_HOLDS_INT32)
-MONARY_DEFINE_NUM_LOADER(monary_load_int32_value, int32_t, int32_t, bson_iter_int32, BSON_ITER_HOLDS_INT32)
+MONARY_DEFINE_INT_LOADER(monary_load_int8_value, int8_t)
+MONARY_DEFINE_INT_LOADER(monary_load_int16_value, int16_t)
+MONARY_DEFINE_INT_LOADER(monary_load_int32_value, int32_t)
+MONARY_DEFINE_INT_LOADER(monary_load_int64_value, int64_t)
 
 // Unsigned integers
-MONARY_DEFINE_NUM_LOADER(monary_load_uint8_value, uint8_t, uint32_t, bson_iter_int32, BSON_ITER_HOLDS_INT32)
-MONARY_DEFINE_NUM_LOADER(monary_load_uint16_value, uint16_t, uint32_t, bson_iter_int32, BSON_ITER_HOLDS_INT32)
-MONARY_DEFINE_NUM_LOADER(monary_load_uint32_value, uint32_t, uint32_t, bson_iter_int32, BSON_ITER_HOLDS_INT32)
-
-// Floating point
-MONARY_DEFINE_NUM_LOADER(monary_load_float32_value, float, double, bson_iter_double, BSON_ITER_HOLDS_DOUBLE)
-MONARY_DEFINE_NUM_LOADER(monary_load_float64_value, double, double, bson_iter_double, BSON_ITER_HOLDS_DOUBLE)
-
-int monary_load_int64_value(const bson_iter_t *bsonit,
-                            monary_column_item *citem,
-                            int idx)
-{
-    int64_t val;
-
-    if (BSON_ITER_HOLDS_INT32(bsonit)) {
-        val = (int64_t) bson_iter_int32(bsonit);
-        memcpy(((int64_t *) citem->storage) + idx, &val, sizeof(int64_t));
-        return 1;
-    }
-    else if (BSON_ITER_HOLDS_INT64(bsonit)) {
-        val = bson_iter_int64(bsonit);
-        memcpy(((int64_t *) citem->storage) + idx, &val, sizeof(int64_t));
-        return 1;
-    }
-    else {
-        return 0;
-    }
-}
-
-int monary_load_uint64_value(const bson_iter_t *bsonit,
-                             monary_column_item *citem,
-                             int idx)
-{
-    uint64_t val;
-
-    if (BSON_ITER_HOLDS_INT32(bsonit)) {
-        val = (uint64_t) bson_iter_int32(bsonit);
-        memcpy(((uint64_t *) citem->storage) + idx, &val, sizeof(uint64_t));
-        return 1;
-    }
-    else if (BSON_ITER_HOLDS_INT64(bsonit)) {
-        val = bson_iter_int64(bsonit);
-        memcpy(((uint64_t *) citem->storage) + idx, &val, sizeof(uint64_t));
-        return 1;
-    }
-    else {
-        return 0;
-    }
-}
+MONARY_DEFINE_INT_LOADER(monary_load_uint8_value, uint8_t)
+MONARY_DEFINE_INT_LOADER(monary_load_uint16_value, uint16_t)
+MONARY_DEFINE_INT_LOADER(monary_load_uint32_value, uint32_t)
+MONARY_DEFINE_INT_LOADER(monary_load_uint64_value, uint64_t)
 
 int monary_load_datetime_value(const bson_iter_t* bsonit,
                                monary_column_item* citem,
@@ -783,6 +761,7 @@ int monary_load_query(monary_cursor* cursor)
     const bson_t *bson;             // Pointer to an immutable BSON buffer
     int num_masked;
     int row;
+    int total_values;
     monary_column_data *coldata;
     mongoc_cursor_t *mcursor;
 
@@ -808,11 +787,12 @@ int monary_load_query(monary_cursor* cursor)
         ++row;
     }
 
+    total_values = coldata->num_columns * row;
     if (mongoc_cursor_error(mcursor, &error)) {
         DEBUG("error: %d.%d %s", error.domain, error.code, error.message);
     }
 
-    DEBUG("%i rows loaded; %i / %i values were masked", row, num_masked, total_values);
+//    DEBUG("%i rows loaded; %i / %i values were masked", row, num_masked, total_values);
 
     return row;
 }
