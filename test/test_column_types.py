@@ -3,11 +3,14 @@
 
 import random
 import datetime
-from collections import OrderedDict
+
+try:
+    from collections import OrderedDict
+except ImportError:
+    from .ordereddict import OrderedDict
 
 import bson
 import pymongo
-
 import monary
 
 NUM_TEST_RECORDS = 100
@@ -54,7 +57,7 @@ def setup():
     coll.insert(records, safe=True)
     RECORDS = records
     print "setup complete"
-    
+
 def teardown():
     c = get_pymongo_connection()
     c.drop_database("monary_test")
@@ -123,18 +126,39 @@ def list_to_bsonable_dict(values):
     return OrderedDict((str(i), val) for i, val in enumerate(values))
 
 def test_bson_column():
-    rawdata = get_monary_column("intlistval", "bson:256")
-    datasize = get_monary_column("intlistval", "size")
-    expected = [ bson.BSON.encode(list_to_bsonable_dict(val))
-                 for val in get_record_values("intlistval") ]
-    data = [ str(x)[:xsize] for x, xsize in zip(rawdata, datasize) ]
+    # 50 bytes is generous padding
+    data = get_monary_column("subdocument", "bson:50")
+    expected = [ bson.BSON.encode(list_to_bsonable_dict(get_record_values("subdocument"))) ]
     assert data == expected
 
 def test_type_column():
+    # See: http://bsonspec.org/#/specification for type codes
+    data = get_monary_column("floatval", "type")
+    expected = [ 1 ] * len(data)
+    assert data == expected
+
+    data = get_monary_column("stringval", "type")
+    expected = [ 2 ] * len(data)
+    assert data == expected
+
+    data = get_monary_column("intlistval", "type")
+    expected = [ 4 ] * len(data)
+    assert data == expected
+
+    data = get_monary_column("binaryval", "type")
+    expected = [ 5 ] * len(data)
+    assert data == expected
+
+    data = get_monary_column("boolval", "type")
+    expected = [ 8 ] * len(data)
+    assert data == expected
+
     data = get_monary_column("dateval", "type")
-    # Note: "9" is the bson type code for 'date' values
-    # see: http://bsonspec.org/#/specification
     expected = [ 9 ] * len(data)
+    assert data == expected
+
+    data = get_monary_column("intval", "type")
+    expected = [ 16 ] * len(data)
     assert data == expected
 
 def test_string_length_column():
@@ -145,4 +169,10 @@ def test_string_length_column():
 def test_list_length_column():
     data = get_monary_column("intlistval", "length")
     expected = [ len(x) for x in get_record_values("intlistval") ]
+    assert data == expected
+
+def test_bson_length_column():
+    data = get_monary_column("subdocument", "length")
+    # We've have only one key in the subdocument
+    expected = [ 1 ] * len(data)
     assert data == expected
