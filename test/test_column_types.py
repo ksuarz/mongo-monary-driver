@@ -12,6 +12,7 @@ except ImportError:
 import bson
 import pymongo
 import monary
+import nose
 
 NUM_TEST_RECORDS = 100
 
@@ -84,7 +85,8 @@ def check_uint_column(coltype):
 def check_float_column(coltype):
     data = get_monary_column("floatval", coltype)
     expected = get_record_values("floatval")
-    assert data == expected
+    for d, e in zip(data, expected):
+        nose.tools.assert_almost_equal((d-e)/max(d,e), 0, places=5)
 
 def test_int_columns():
     for coltype in ["int8", "int16", "int32", "int64"]:
@@ -94,7 +96,7 @@ def test_int_columns():
 
 def test_float_columns():
     for coltype in ["float32", "float64"]:
-        yield check_int_column, coltype
+        yield check_float_column, coltype
 
 def test_id_column():
     column = get_monary_column("_id", "id")
