@@ -9,3 +9,4 @@ build/*
 data
 dist
 MANIFEST
+test/run_tests.py
