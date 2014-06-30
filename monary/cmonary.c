@@ -312,20 +312,23 @@ int monary_load_datetime_value(const bson_iter_t* bsonit,
 }
 
 int monary_load_string_value(const bson_iter_t* bsonit,
-                           monary_column_item* citem,
-                           int idx)
+                             monary_column_item* citem,
+                             int idx)
 {
     char *dest;         // A pointer to the final location of the array in mem
     const char *src;    // Pointer to immutable buffer
-    uint32_t length;    // The size of the string according to iter_utf8
+    uint32_t stringlen; // The size of the string according to iter_utf8
+    int size;
 
     if (BSON_ITER_HOLDS_UTF8(bsonit)) {
-        src = bson_iter_utf8(bsonit, &length);
-        if (length > citem->type_arg) {
-            length = citem->type_arg;
+        src = bson_iter_utf8(bsonit, &stringlen);
+        stringlen++;
+        size = citem->type_arg;
+        if (stringlen > size) {
+            stringlen = size;
         }
-        dest = ((char*) citem->storage) + (idx * length);
-        bson_strncpy(dest, src, length);
+        dest = ((char*) citem->storage) + (idx * size);
+        bson_strncpy(dest, src, stringlen);
         return 1;
     } else {
         return 0;

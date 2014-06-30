@@ -1,0 +1,12 @@
+*.pyc
+*.o
+*.a
+*.so
+*.dylib
+build/*
+._*
+*.DS_Store
+data
+dist
+MANIFEST
+test/run_tests.py
