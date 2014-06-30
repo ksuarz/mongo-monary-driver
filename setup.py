@@ -8,10 +8,9 @@ from distutils.core import setup, Command
 from distutils.command.build import build
 from distutils.ccompiler import new_compiler
 
-DEBUG = False
+DEBUG = True
 
-# TODO: New version number, presumably?
-VERSION = "0.2.3"
+VERSION = "0.3.0"
 
 # Hijack the build process by inserting specialized commands into
 # the list of build sub commands
@@ -19,19 +18,18 @@ build.sub_commands = [ ("build_cmongo", None), ("build_cmonary", None) ] + build
 
 # Platform specific stuff
 if platform.system() == 'Windows':
-    # TODO: Discuss this with David...
     compiler_kw = {'compiler' : 'mingw32'}
     linker_kw = {'libraries' : ['ws2_32']}
     so_target = 'cmonary.dll'
 else:
     compiler_kw = {}
-    linker_kw = {}
+    linker_kw = {'libraries' : ['ssl', 'crypto', 'pthread', 'sasl2']}
     so_target = 'libcmonary.so' 
 
 compiler = new_compiler(**compiler_kw)
 
-MONARY_DIR = "monary/"
-CMONGO_SRC = "mongodb-mongo-c-driver-0.96.2/"
+MONARY_DIR = "monary"
+CMONGO_SRC = "mongodb-mongo-c-driver-0.96.2"
 CFLAGS = ["--std=c99", "-fPIC", "-O2"]
 
 if not DEBUG:
@@ -76,12 +74,12 @@ class BuildCMonary(Command):
     def finalize_options(self):
         pass
     def run(self):
-        # TODO: Test for portability; specifically the directory specification.
-        # Might have to use os.sep.join(["path", "to", "dir"])
-        compiler.compile([MONARY_DIR + "cmonary.c"],
+        compiler.compile([os.path.join(MONARY_DIR, "cmonary.c")],
                          extra_preargs=CFLAGS,
-                         include_dirs=[CMONGO_SRC + "src/mongoc", CMONGO_SRC + "src/libbson/src/bson"])
-        compiler.link_shared_lib([MONARY_DIR + "cmonary.o", CMONGO_SRC + "libmongo.a"],
+                         include_dirs=[os.path.join(CMONGO_SRC, "src", "mongoc"), os.path.join(CMONGO_SRC, "src", "libbson", "src", "bson")])
+        compiler.link_shared_lib([os.path.join(MONARY_DIR, "cmonary.o"),
+                                  os.path.join(CMONGO_SRC, ".libs", "libmongoc-1.0.a"),
+                                  os.path.join(CMONGO_SRC, "src", "libbson", ".libs", "libbson-1.0.a")],
                                  "cmonary", "monary", **linker_kw)
 
 # Get README info
