@@ -285,7 +285,7 @@ int FUNCNAME (const bson_iter_t *bsonit,                                        
 MONARY_DEFINE_FLOAT_LOADER(monary_load_float32_value, float);
 MONARY_DEFINE_FLOAT_LOADER(monary_load_float64_value, double);
 
-#define MONARY_DEFINE_INT_LOADER(FUNCNAME, NUMTYPE, ORIGTYPE)               \
+#define MONARY_DEFINE_INT_LOADER(FUNCNAME, NUMTYPE)                         \
 int FUNCNAME (const bson_iter_t *bsonit,                                    \
               monary_column_item *citem,                                    \
               int idx)                                                      \
@@ -298,6 +298,7 @@ int FUNCNAME (const bson_iter_t *bsonit,                                    \
     } else if (BSON_ITER_HOLDS_INT64(bsonit)) {                             \
         value = (NUMTYPE) bson_iter_int64(bsonit);                          \
         memcpy(((NUMTYPE*) citem->storage) + idx, &value, sizeof(NUMTYPE)); \
+        return 1;                                                           \
     } else {                                                                \
         return 0;                                                           \
     }                                                                       \
