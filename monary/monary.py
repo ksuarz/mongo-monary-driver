@@ -86,7 +86,7 @@ MONARY_TYPES = {
     "float32":   (11, numpy.float32),
     "float64":   (12, numpy.float64),
     "date":      (13, numpy.int64),
-    "string":    (14, "S"),
+    "string":    (14, "S"),             # The length argument here INCLUDES the null character
     "binary":    (15, "<V"),            # Little-endian raw data (void pointer)
     "bson":      (16, "<V"),
     "type":      (17, numpy.uint8),

@@ -110,7 +110,8 @@ def test_date_column():
     assert [monary.mongodate_to_datetime(x) for x in column] == expected
 
 def test_string_column():
-    data = get_monary_column("stringval", "string:5")
+    # TODO figure out what to do with the null character
+    data = get_monary_column("stringval", "string:6")
     expected = get_record_values("stringval")
     assert data == expected
 
