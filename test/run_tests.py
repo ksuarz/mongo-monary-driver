@@ -1,6 +1,11 @@
 # Monary - Copyright 2011-2013 David J. C. Beach
 # Please see the included LICENSE.TXT and NOTICE.TXT for licensing information.
 
+"""
+Note: This runs all of the tests. Maybe
+      this will be removed eventually?
+"""
+
 import os
 from os import listdir
 from os.path import isfile, join
