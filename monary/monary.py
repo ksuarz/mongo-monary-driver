@@ -357,7 +357,7 @@ class Monary(object):
         count = cmonary.monary_query_count(self._collection, query)
         if count < 0:
             # TODO
-            raise Exception("MongoDB C driver db.collection.count returned a negative value :(")
+            raise RuntimeError("MongoDB C driver db.collection.count returned a negative value :(")
         return count
 
     def query(self, db, coll, query, fields, types,
@@ -475,6 +475,7 @@ class Monary(object):
 
     def close(self):
         """Destroy the current collection, if any."""
+        self._collection_ns = ""
         if self._collection is not None:
             cmonary.monary_destroy_collection(self._collection)
             self._collection = None
