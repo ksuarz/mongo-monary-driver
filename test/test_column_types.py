@@ -47,7 +47,8 @@ def setup():
                                         for i in xrange(random.randint(1,5))),
                     binaryval=bson.binary.Binary("".join(chr(random.randint(0,255))
                                                  for i in xrange(5))),
-                    intlistval=[ random.randint(0, 100) for i in xrange(random.randint(1,5)) ]
+                    intlistval=[ random.randint(0, 100) for i in xrange(random.randint(1,5)) ],
+                    subdocument=dict(subkey=random.randint(0, 255))
                 )
         records.append(record)
     coll.insert(records, safe=True)
@@ -105,15 +106,8 @@ def test_bool_column():
 
 def test_date_column():
     column = get_monary_column("dateval", "date")
-    data = [ monary.mongodate_to_datetime(val) for val in column ]
     expected = get_record_values("dateval")
-    assert data == expected
-
-def test_timestamp_column():
-    data = get_monary_column("timestampval", "timestamp")
-    timestamps = get_record_values("timestampval")
-    expected = [ ((ts.time << 32) + ts.inc) for ts in timestamps ]
-    assert data == expected
+    assert [monary.mongodate_to_datetime(x) for x in column] == expected
 
 def test_string_column():
     data = get_monary_column("stringval", "string:5")

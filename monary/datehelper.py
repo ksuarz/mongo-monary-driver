@@ -23,8 +23,7 @@ def datetime_to_mongodate(dt):
     """
     if not isinstance(dt, (datetime.date, datetime.datetime)):
         raise ValueError("requires a date or datetime value")
-    if dt < MONGO_DATE_EPOCH:
-        raise ValueError("Mongo cannot represent date before January 1, 1970")
+    # TODO check validity for dates (negative) before the epoch
     return timedelta_to_mongodelta(dt - MONGO_DATE_EPOCH)
 
 def mongodelta_to_timedelta(mongodelta):
