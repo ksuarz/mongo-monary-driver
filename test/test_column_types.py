@@ -41,7 +41,7 @@ def setup():
                     uintval=random.randint(0, 255),
                     floatval=random.uniform(-1e30, 1e30),
                     boolval=(i % 2 == 0),
-                    dateval=(datetime.datetime(1970, 1, 1) +
+                    dateval=(datetime.datetime(1970, 1, 1) -
                              datetime.timedelta(days=random.randint(0, 60 * 365),
                                                 seconds=random.randint(0, 24 * 60 * 60),
                                                 milliseconds=random.randint(0, 1000))),
@@ -52,7 +52,7 @@ def setup():
                     binaryval=bson.binary.Binary("".join(chr(random.randint(0,255))
                                                  for i in xrange(5))),
                     intlistval=[ random.randint(0, 100) for i in xrange(random.randint(1,5)) ],
-                    subdocument=dict(subkey=random.randint(0, 255))
+                    subdocumentval=dict(subkey=random.randint(0, 255))
                 )
         records.append(record)
     coll.insert(records, safe=True)
@@ -129,9 +129,11 @@ def list_to_bsonable_dict(values):
     return OrderedDict((str(i), val) for i, val in enumerate(values))
 
 def test_bson_column():
-    # 50 bytes is generous padding
-    data = get_monary_column("subdocument", "bson:50")
-    expected = [ bson.BSON.encode(list_to_bsonable_dict(get_record_values("subdocument"))) ]
+    size = get_monary_column("subdocumentval", "size")[0]
+    rawdata = get_monary_column("subdocumentval", "bson:{}".format(size))
+    data = [ "".join(c for c in x.data.data) for x in rawdata ]
+    expected = [ "".join(c for c in bson.BSON.encode(record))
+            for record in get_record_values("subdocumentval") ]
     assert data == expected
 
 def test_type_column():
@@ -175,7 +177,28 @@ def test_list_length_column():
     assert data == expected
 
 def test_bson_length_column():
-    data = get_monary_column("subdocument", "length")
-    # We've have only one key in the subdocument
+    data = get_monary_column("subdocumentval", "length")
+    # We have only one key in the subdocument
     expected = [ 1 ] * len(data)
+    assert data == expected
+
+def test_string_size_column():
+    data = get_monary_column("stringval", "size")
+    expected = [ len(x) + 1 for x in get_record_values("stringval") ]
+    assert data == expected
+
+def test_list_size_column():
+    lists = get_record_values("intlistval")
+    data = get_monary_column("intlistval", "size")
+    expected = [ len(bson.BSON.encode(list_to_bsonable_dict(list))) for list in lists ]
+    assert data == expected
+
+def test_bson_size_column():
+    data = get_monary_column("subdocumentval", "size")
+    expected = [ len(bson.BSON.encode(record)) for record in get_record_values("subdocumentval")]
+    assert data == expected
+
+def test_binary_size_column():
+    data = get_monary_column("binaryval", "size")
+    expected = [ len(x) for x in get_record_values("binaryval") ]
     assert data == expected
