@@ -42,7 +42,7 @@ def test_bad_authenticate():
                                           database="monary_auth_test",
                                           username="monary_test_user",
                                           password="monary_test_wrong_pass")
-        _ = monary_connection.count("monary_auth_test", "junk", {})
+        monary_connection.count("monary_auth_test", "junk", {})
         assert False, "authentication should not have succeeded with wrong password"
     except RuntimeError:
         pass  # auth should have failed
@@ -53,7 +53,7 @@ def test_reconnection():
                                           database="monary_auth_test",
                                           username="monary_test_user",
                                           password="monary_test_wrong_pass")
-        _ = monary_connection.count("monary_auth_test", "junk", {})
+        monary_connection.count("monary_auth_test", "junk", {})
         assert False, "authentication should not have succeeded with wrong password"
     except RuntimeError:
         pass  # auth should have failed
