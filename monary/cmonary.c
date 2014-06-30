@@ -812,6 +812,7 @@ int monary_load_query(monary_cursor* cursor)
         DEBUG("error: %d.%d %s", error.domain, error.code, error.message);
     }
 
+    int total_values = row * coldata->num_columns;
     DEBUG("%i rows loaded; %i / %i values were masked", row, num_masked, total_values);
 
     return row;
