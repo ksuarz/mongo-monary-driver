@@ -4,15 +4,12 @@
 import random
 import datetime
 
-try:
-    from collections import OrderedDict
-except ImportError:
-    from .ordereddict import OrderedDict
-
 import bson
 import pymongo
-import monary
 import nose
+
+import monary
+from monary.monary import OrderedDict
 
 NUM_TEST_RECORDS = 100
 
@@ -32,7 +29,7 @@ def setup():
     coll = db.test_data
     records = [ ]
 
-    random.seed(1234) # for reproducability
+    random.seed(1234) # for reproducibility
 
     for i in xrange(NUM_TEST_RECORDS):
         record = dict(
@@ -41,7 +38,7 @@ def setup():
                     uintval=random.randint(0, 255),
                     floatval=random.uniform(-1e30, 1e30),
                     boolval=(i % 2 == 0),
-                    dateval=(datetime.datetime(1970, 1, 1) -
+                    dateval=(datetime.datetime(1970, 1, 1) +
                              datetime.timedelta(days=random.randint(0, 60 * 365),
                                                 seconds=random.randint(0, 24 * 60 * 60),
                                                 milliseconds=random.randint(0, 1000))),
@@ -130,7 +127,7 @@ def list_to_bsonable_dict(values):
 
 def test_bson_column():
     size = get_monary_column("subdocumentval", "size")[0]
-    rawdata = get_monary_column("subdocumentval", "bson:{}".format(size))
+    rawdata = get_monary_column("subdocumentval", "bson:{0}".format(size))
     data = [ "".join(c for c in x.data.data) for x in rawdata ]
     expected = [ "".join(c for c in bson.BSON.encode(record))
             for record in get_record_values("subdocumentval") ]

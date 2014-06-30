@@ -23,7 +23,6 @@ def datetime_to_mongodate(dt):
     """
     if not isinstance(dt, (datetime.date, datetime.datetime)):
         raise ValueError("requires a date or datetime value")
-    # TODO check validity for dates (negative) before the epoch
     return timedelta_to_mongodelta(dt - MONGO_DATE_EPOCH)
 
 def mongodelta_to_timedelta(mongodelta):

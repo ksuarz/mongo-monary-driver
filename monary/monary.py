@@ -468,7 +468,6 @@ class Monary(object):
             try:
                 if not self._get_collection(db, coll):
                     raise ValueError("unable to get the collection")
-                # TODO is this correct?
                 cursor = cmonary.monary_init_query(self._collection, offset, limit,
                                                    full_query, coldata, select_fields)
                 while True:
