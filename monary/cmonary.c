@@ -181,8 +181,9 @@ monary_column_data* monary_alloc_column_data(unsigned int num_columns,
 
 int monary_free_column_data(monary_column_data* coldata)
 {
+    int i;
     if(coldata == NULL || coldata->columns == NULL) { return 0; }
-    for(int i = 0; i < coldata->num_columns; i++) {
+    for(i = 0; i < coldata->num_columns; i++) {
         monary_column_item* col = coldata->columns + i;
         if(col->field != NULL) { free(col->field); }
     }
