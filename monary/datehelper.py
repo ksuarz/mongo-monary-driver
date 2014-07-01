@@ -48,5 +48,5 @@ def timedelta_to_mongodelta(td):
     """
     if not isinstance(td, datetime.timedelta):
         raise ValueError, "requires a timedelta value"
-    millis = (td.microseconds + (td.seconds + td.days * 24 * 3600) * 10**3)
+    millis = (td.microseconds / 1000 + (td.seconds + td.days * 24 * 3600) * 1000)
     return millis

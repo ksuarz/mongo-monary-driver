@@ -38,7 +38,7 @@ def setup():
                     uintval=random.randint(0, 255),
                     floatval=random.uniform(-1e30, 1e30),
                     boolval=(i % 2 == 0),
-                    dateval=(datetime.datetime(1970, 1, 1) +
+                    dateval=(datetime.datetime(1970, 1, 1) + (1 - 2 * random.randint(0,1)) *
                              datetime.timedelta(days=random.randint(0, 60 * 365),
                                                 seconds=random.randint(0, 24 * 60 * 60),
                                                 milliseconds=random.randint(0, 1000))),

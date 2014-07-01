@@ -788,7 +788,6 @@ int monary_load_query(monary_cursor* cursor)
         ++row;
     }
 
-    total_values = coldata->num_columns * row;
     if (mongoc_cursor_error(mcursor, &error)) {
         DEBUG("error: %d.%d %s", error.domain, error.code, error.message);
     }
