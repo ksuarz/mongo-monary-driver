@@ -3,10 +3,10 @@
 
 import random
 import datetime
+import nose
 
 import bson
 import pymongo
-import nose
 
 import monary
 from monary.monary import OrderedDict
@@ -112,7 +112,6 @@ def test_date_column():
     assert [monary.mongodate_to_datetime(x) for x in column] == expected
 
 def test_string_column():
-    # TODO figure out what to do with the null character
     data = get_monary_column("stringval", "string:6")
     expected = get_record_values("stringval")
     assert data == expected
@@ -127,7 +126,7 @@ def list_to_bsonable_dict(values):
 
 def test_bson_column():
     size = get_monary_column("subdocumentval", "size")[0]
-    rawdata = get_monary_column("subdocumentval", "bson:{0}".format(size))
+    rawdata = get_monary_column("subdocumentval", "bson:%d" % size)
     data = [ "".join(c for c in x.data.data) for x in rawdata ]
     expected = [ "".join(c for c in bson.BSON.encode(record))
             for record in get_record_values("subdocumentval") ]
