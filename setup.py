@@ -23,7 +23,7 @@ if platform.system() == 'Windows':
     so_target = 'cmonary.dll'
 else:
     compiler_kw = {}
-    linker_kw = {'libraries' : ['ssl', 'crypto', 'pthread', 'sasl2']}
+    linker_kw = {'libraries' : ['ssl', 'crypto', 'pthread', 'sasl2', 'rt']}
     so_target = 'libcmonary.so' 
 
 compiler = new_compiler(**compiler_kw)
@@ -52,8 +52,8 @@ class BuildCMongoDriver(Command):
         try:
             # chdir(2) should not fail except under exceptional circumstances (directory deleted, etc.)
             os.chdir(CMONGO_SRC)
+            subprocess.call(["autoreconf"])
             status = subprocess.call(["./configure", "--enable-static", "--without-documentation"])
-            # TODO: What kind of exception do you want? Could just use regular old exception
             if status != 0:
                 raise BuildException("configure script failed with exit status {0}.".format(status))
 
