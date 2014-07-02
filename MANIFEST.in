@@ -1,6 +1,6 @@
 include *.TXT
 include README.rst
 recursive-include monary *.c *.py
-recursive-include mongodb-mongo-c-driver-0.96.2 *
+recursive-include mongodb-mongo-c-driver-0.96.4 *
 recursive-exclude test *.py
 recursive-exclude timing *.py
