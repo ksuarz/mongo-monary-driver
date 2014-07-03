@@ -636,7 +636,6 @@ int64_t monary_query_count(mongoc_collection_t *collection,
         DEBUG("error: %d.%d %s", error.domain, error.code, error.message);
     }
 
-    DEBUG("Got count from libmongoc: %lld", total_count);
     return total_count;
 }
 
