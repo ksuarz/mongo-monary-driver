@@ -111,6 +111,12 @@ def test_date_column():
     expected = get_record_values("dateval")
     assert [monary.mongodate_to_datetime(x) for x in column] == expected
 
+def test_timestamp_column():
+    data = get_monary_column("timestampval", "timestamp")
+    timestamps = get_record_values("timestampval")
+    expected = [ ((ts.time << 32) + ts.inc) for ts in timestamps ]
+    assert data == expected
+
 def test_string_column():
     data = get_monary_column("stringval", "string:6")
     expected = get_record_values("stringval")

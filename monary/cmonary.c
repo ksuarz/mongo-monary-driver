@@ -32,14 +32,15 @@ enum {
     TYPE_UINT64 = 10,
     TYPE_FLOAT32 = 11,
     TYPE_FLOAT64 = 12,
-    TYPE_DATE = 13,     // BSON date-time, seconds since the UNIX epoch (uint64 storage)
-    TYPE_STRING = 14,   // each record is (type_arg) chars in length
-    TYPE_BINARY = 15,   // each record is (type_arg) bytes in length
-    TYPE_BSON = 16,     // BSON subdocument as binary; each record is type_arg bytes
-    TYPE_TYPE = 17,
-    TYPE_SIZE = 18,
-    TYPE_LENGTH = 19,
-    LAST_TYPE = 19,
+    TYPE_DATE = 13,      // BSON date-time, seconds since the UNIX epoch (uint64 storage)
+    TYPE_TIMESTAMP = 14, // BSON timestamp - UNIX timestamp and increment (uint64 storage)
+    TYPE_STRING = 15,    // each record is (type_arg) chars in length
+    TYPE_BINARY = 16,    // each record is (type_arg) bytes in length
+    TYPE_BSON = 17,      // BSON subdocument as binary (each record is type_arg bytes)
+    TYPE_TYPE = 18,      // BSON type code (uint8 storage)
+    TYPE_SIZE = 19,      // data size of a string, symbol, binary, or bson object (uint32)
+    TYPE_LENGTH = 20,    // length of string (character count) or num elements in BSON (uint32)
+    LAST_TYPE = 20,      // BSON type code as per the BSON specificaion
 };
 
 /**
@@ -343,6 +344,25 @@ int monary_load_datetime_value(const bson_iter_t* bsonit,
     }
 }
 
+int monary_load_timestamp_value(const bson_iter_t* bsonit,
+                                monary_column_item* citem,
+                                int idx)
+{
+    uint32_t timestamp;
+    uint32_t increment;
+    uint64_t value;
+
+    if (BSON_ITER_HOLDS_TIMESTAMP(bsonit)) {
+        bson_iter_timestamp(bsonit, &timestamp, &increment);
+        value = ((uint64_t) timestamp << 32) + increment;
+        memcpy(((int64_t*) citem->storage) + idx, &value, sizeof(int64_t));
+        return 1;
+    }
+    else {
+        return 0;
+    }
+}
+
 int monary_load_string_value(const bson_iter_t* bsonit,
                              monary_column_item* citem,
                              int idx)
@@ -508,6 +528,7 @@ int monary_load_item(const bson_iter_t* bsonit,
     switch(citem->type) {
         MONARY_DISPATCH_TYPE(TYPE_OBJECTID, monary_load_objectid_value)
         MONARY_DISPATCH_TYPE(TYPE_DATE, monary_load_datetime_value)
+        MONARY_DISPATCH_TYPE(TYPE_TIMESTAMP, monary_load_timestamp_value)
         MONARY_DISPATCH_TYPE(TYPE_BOOL, monary_load_bool_value)
 
         MONARY_DISPATCH_TYPE(TYPE_INT8, monary_load_int8_value)
