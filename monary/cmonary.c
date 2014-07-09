@@ -289,6 +289,14 @@ int FUNCNAME (const bson_iter_t* bsonit,                                     \
         value = (NUMTYPE) bson_iter_double(bsonit);                          \
         memcpy(((NUMTYPE*) citem->storage) + idx, &value, sizeof(NUMTYPE));  \
         return 1;                                                            \
+    } else if (BSON_ITER_HOLDS_INT32(bsonit)) {                              \
+        value = (NUMTYPE) bson_iter_int32(bsonit);                           \
+        memcpy(((NUMTYPE*) citem->storage) + idx, &value, sizeof(NUMTYPE));  \
+        return 1;                                                            \
+    } else if (BSON_ITER_HOLDS_INT64(bsonit)) {                              \
+        value = (NUMTYPE) bson_iter_int64(bsonit);                           \
+        memcpy(((NUMTYPE*) citem->storage) + idx, &value, sizeof(NUMTYPE));  \
+        return 1;                                                            \
     } else {                                                                 \
         return 0;                                                            \
     }                                                                        \
@@ -310,6 +318,10 @@ int FUNCNAME (const bson_iter_t* bsonit,                                     \
         return 1;                                                            \
     } else if (BSON_ITER_HOLDS_INT64(bsonit)) {                              \
         value = (NUMTYPE) bson_iter_int64(bsonit);                           \
+        memcpy(((NUMTYPE*) citem->storage) + idx, &value, sizeof(NUMTYPE));  \
+        return 1;                                                            \
+    } else if (BSON_ITER_HOLDS_DOUBLE(bsonit)) {                             \
+        value = (NUMTYPE) bson_iter_double(bsonit);                          \
         memcpy(((NUMTYPE*) citem->storage) + idx, &value, sizeof(NUMTYPE));  \
         return 1;                                                            \
     } else {                                                                 \
@@ -503,6 +515,9 @@ int monary_load_length_value(const bson_iter_t* bsonit,
                 return 0;
             }
             for (length = 0; bson_iter_next(&child); length++);
+            break;
+        case BSON_TYPE_BINARY:
+            bson_iter_binary(bsonit, NULL, &length, &discard);
             break;
         default:
             return 0;
