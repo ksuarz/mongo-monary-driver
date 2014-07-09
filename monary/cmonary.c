@@ -239,7 +239,7 @@ int monary_set_column_item(monary_column_data* coldata,
     
     col = coldata->columns + colnum;
 
-    col->field = (char*) malloc((len + 1) * sizeof(char));
+    col->field = malloc((len + 1));
     strcpy(col->field, field);
     
     col->type = type;
@@ -350,15 +350,15 @@ int monary_load_timestamp_value(const bson_iter_t* bsonit,
 {
     uint32_t timestamp;
     uint32_t increment;
-    uint64_t value;
+    void* dest;
 
+    dest = citem->storage + idx*sizeof(int64_t);
     if (BSON_ITER_HOLDS_TIMESTAMP(bsonit)) {
         bson_iter_timestamp(bsonit, &timestamp, &increment);
-        value = ((uint64_t) timestamp << 32) + increment;
-        memcpy(((int64_t*) citem->storage) + idx, &value, sizeof(int64_t));
+        memcpy(dest, &timestamp, sizeof(int32_t));
+        memcpy(dest + sizeof(int32_t), &increment, sizeof(int32_t));
         return 1;
-    }
-    else {
+    } else {
         return 0;
     }
 }
@@ -432,8 +432,7 @@ int monary_load_document_value(const bson_iter_t* bsonit,
         dest = ((uint8_t*) citem->storage) + (idx * document_len);
         memcpy(dest, document, document_len);
         return 1;
-    }
-    else {
+    } else {
         return 0;
     }
 }
@@ -736,6 +735,7 @@ monary_cursor* monary_init_query(mongoc_collection_t* collection,
 
     // build BSON query data
     memcpy(&query_size, query, sizeof(int32_t));
+    query_size = (int32_t) BSON_UINT32_FROM_LE(query_size);
     if (!bson_init_static(&query_bson,
                           query,
                           query_size)) {
@@ -752,7 +752,7 @@ monary_cursor* monary_init_query(mongoc_collection_t* collection,
             DEBUG("%s", "An error occurred while allocating memory for BSON data");
             return NULL;
         }
-        monary_get_bson_fields_list(coldata, &query_bson);
+        monary_get_bson_fields_list(coldata, &fields_bson);
     }
 
     // create query cursor
