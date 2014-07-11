@@ -274,12 +274,69 @@ _cmonary_load_cursor_single (PyListObject   ***lists,  /* IN-OUT */
     }
 }
 
+/*
+ *-------------------------------------------------------------------------
+ * _cmonary_load_item --
+ *
+ *      Loads a value from a MongoDB cursor into a Python list.
+ *
+ * Parameters:
+ *      @iter: A pointer to a bson_iter_t.
+ *      @list: A Monary list containing a Python list and the name of the field
+ *      it represents.
+ *
+ *  Returns:
+ *      True if the load was successful; false otherwise.
+ *
+ *  Side effects:
+ *      At most one element is consumed from the iterator.
+ *-------------------------------------------------------------------------
+ */
 int
-_cmonary_
+_cmonary_load_item (bson_iter_t    *iter,
+                    cmonary_list_t *list)
+{
+    int32_t   int32_val;
+    int64_t   int64_val;
+    PyObject *item;
+
+    switch (bson_iter_type(iter)) {
+        case BSON_TYPE_DOUBLE:
+            return 0;
+        case BSON_TYPE_UTF8:
+            return 0;
+        case BSON_TYPE_DOCUMENT:
+            return 0;
+        case BSON_TYPE_ARRAY:
+            return 0;
+        case BSON_TYPE_BINARY:
+            return 0;
+        case BSON_TYPE_OID:
+            return 0;
+        case BSON_TYPE_BOOL:
+            return 0;
+        case BSON_TYPE_DATE_TIME:
+            return 0;
+        case BSON_TYPE_INT32:
+            int32_val = bson_iter_int32(iter);
+            item = PyInt_FromLong(int32_val);
+            break;
+        case BSON_TYPE_INT64:
+            int64_val = bson_iter_int64(iter);
+            item = PyInt_FromLong(int64_val);
+            break;
+        default:
+            return 0;
+    }
+
+    // PyList_Append returns 0 on success and -1 on failure.
+    // +1 to convert it to true on success; false otherwise.
+    return PyList_Append(list->list, item) + 1;
+}
 
 /*
  *-------------------------------------------------------------------------
- * cmonary_query --
+ * cmonary_collection_find --
  *
  *      Performs a find query on a MongoDB collection, selecting certain fields
  *      from the results and storing them in Python lists.
