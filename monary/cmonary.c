@@ -1,5 +1,6 @@
 #include <Python/Python.h>
 #include <mongoc.h>
+#include <bson.h>
 #include "cmonary.h"
 
 /*
@@ -24,23 +25,32 @@ cmonary_dealloc (cmonary_t *self)
     PyListObject *sublist;
     Py_ssize_t    i;
     Py_ssize_t    length;
+    int list_idx;
 
-    if (self->coldata) {
-        length = PyList_Size(self->coldata);
-        for (i = 0; i < length; i++) {
-            sublist = (PyListObject *) PyList_GetItem(self->coldata, i);
-            if (sublist) {
-                Py_DECREF(sublist);
-            }
-            else {
-                break;
-            }
-        }
-        Py_DECREF(self->coldata);
-    }
-    Py_XDECREF(self->client);
-    Py_XDECREF(self->collection);
+    mongoc_client_destroy(self->client);
     self->ob_type->tp_free((PyObject *) self);
+}
+
+/*
+ *-------------------------------------------------------------------------
+ * cmonary_dealloc_columns --
+ *
+ *      Frees data owned by a cmonary_column_t allocated on the stack.
+ *
+ *  Returns:
+ *      None.
+ *-------------------------------------------------------------------------
+ */
+static void
+cmonary_dealloc_columns (cmonary_column_t *column)
+{
+    Py_ssize_t length;
+
+    length = PyList_GetSize(column->columns);
+    for (--length; length >= 0; length--) {
+        Py_DECREF(PyList_GetItem((PyObject *) column->columns, length));
+        free(fieldnames + length);
+    }
 }
 
 /*
@@ -57,27 +67,19 @@ cmonary_dealloc (cmonary_t *self)
  *-------------------------------------------------------------------------
  */
 static PyObject *
-cmonary_new (PyTypeObject *type, /* IN */
-             PyObject     *args) /* IN */
+cmonary_new (PyTypeObject *type,
+             PyObject     *args)
 {
     cmonary_t *self;
     const char *uri;
-    const char *db;
-    const char *collection;
 
-    if (!PyArg_ParseTuple(args, "sss", uri, db, collection)) {
+    if (!PyArg_ParseTuple(args, "s", &uri)) {
         return NULL;
     }
 
     self = (cmonary_t *) type->tp_alloc(type, 0);
     if (self) {
-        self->coldata = PyList_New(0);
-        if (!self->coldata) {
-            Py_DECREF(self);
-            return NULL;
-        }
         self->client = NULL;
-        self->collection = NULL;
     }
 
     return (PyObject *) self;
@@ -94,9 +96,9 @@ cmonary_new (PyTypeObject *type, /* IN */
  *-------------------------------------------------------------------------
  */
 static int
-cmonary_init (cmonary_t *self,      /* IN */
-              PyObject  *args,      /* IN */
-              PyObject  *kwargs)    /* IN */
+cmonary_init (cmonary_t *self,
+              PyObject  *args,
+              PyObject  *kwargs)
 {
     const char *uri;
 
@@ -172,18 +174,20 @@ cmonary_collection_count (cmonary_t *self)
 
 /*
  *-------------------------------------------------------------------------
- * cmonary_collection_demo_find --
+ * cmonary_collection_find_demo --
  *
  *      Performs a demo query.
  *-------------------------------------------------------------------------
  */
 static PyObject *
-cmonary_collection_demo_find (cmonary_t *self)
+cmonary_collection_find_demo (cmonary_t *self)
 {
-    uint8_t             *query;
-    mongoc_cursor_t     *cursor;
-    mongoc_collection_t *collection;
+    PyObject            *result;
     bson_t               query_bson;
+    mongoc_collection_t *collection;
+    mongoc_cursor_t     *cursor;
+    uint8_t             *query;
+    int                  masked;
 
     query = "\x05\x00\x00\x00\x00";
     collection = mongoc_collection_new("monary", "test");
@@ -211,7 +215,49 @@ cmonary_collection_demo_find (cmonary_t *self)
         return NULL;
     }
 
-    // TODO load query
+    result = PyList_New(0);
+    masked = cmonary_load_cursor_demo(cursor, result);
+    return result;
+}
+
+static int cmonary_load_cursor_demo (mongoc_cursor_t *cursor, /* IN */
+                                      PyObject        *list)   /* IN-OUT */
+{
+    PyObject *obj;
+    bson_error_t err;
+    bson_iter_t iter;
+    const bson_t *bson;
+    int masked;
+    int32_t value;
+
+    masked = 0;
+
+    while (!mongoc_cursor_error(cursor, &err) && mongoc_cursor_more(cursor)) {
+        if (!mongoc_cursor_next(cursor, &bson)) {
+        }
+
+        if (!bson_iter_init(&iter, &bson)) {
+            return -1;
+        }
+
+        if (strcmp("a", bson_iter_key(iter)) == 0) {
+            if (BSON_ITER_HOLDS_INT32(iter)) {
+                value = bson_iter_int32(iter);
+                obj = PyInt_FromLong(value);
+                if (PyList_Append(list, obj) == -1) {
+                    return -1;
+                }
+            }
+            else {
+                masked++;
+            }
+        }
+    }
+
+    if (mongoc_cursor_error(mcursor, &err)) {
+        fprintf(stderr, "error: %d.%d %s", err.domain, err.code, err.message);
+    }
+    return masked;
 }
 
 /*
@@ -262,19 +308,20 @@ _cmonary_pylist_contains_string (PyListObject *list,
  *      Given a cursor, loads the results into the arrays.
  *
  *  Parameters:
- *      @lists: a pointer to a list of Python lists.
+ *      @lists: a Monary list containing a list of Python lists and the name of
+ *              the field it represents.
  *      @cursor: a MongoDB cursor from libmongoc.
  *
  *  Returns:
  *      The total number of failed loads.
  *-------------------------------------------------------------------------
  */
-int
-_cmonary_load_cursor (PyListObject      ***lists,  /* IN-OUT */
-                      const PyListObject  *fields, /* IN */
-                      mongoc_cursor_t     *cursor) /* IN */
+static int
+_cmonary_load_cursor (cmonary_list_t     *lists,  /* IN-OUT */
+                      const PyListObject *fields, /* IN */
+                      mongoc_cursor_t    *cursor) /* IN */
 {
-    bson-iter_t iter;
+    bson_iter_t iter;
     bson_error_t err;
     const bson_t *bson;
     int masked;
@@ -308,9 +355,9 @@ _cmonary_load_cursor (PyListObject      ***lists,  /* IN-OUT */
  *-------------------------------------------------------------------------
  */
 int
-_cmonary_load_cursor_single (PyListObject   ***lists,  /* IN-OUT */
-                             const char       *field,  /* IN */
-                             mongoc_cursor_t  *cursor) /* IN */
+_cmonary_load_cursor_single (cmonary_list_t  *lists,  /* IN-OUT */
+                             const char      *field,  /* IN */
+                             mongoc_cursor_t *cursor) /* IN */
 {
     bson-iter_t iter;
     bson_error_t err;
@@ -356,31 +403,21 @@ _cmonary_load_cursor_single (PyListObject   ***lists,  /* IN-OUT */
  *      At most one element is consumed from the iterator.
  *-------------------------------------------------------------------------
  */
-int
+static int
 _cmonary_load_item (bson_iter_t    *iter,
                     cmonary_list_t *list)
 {
+    double    double_val;
     int32_t   int32_val;
     int64_t   int64_val;
     PyObject *item;
 
+    // Dispatch
     switch (bson_iter_type(iter)) {
         case BSON_TYPE_DOUBLE:
-            return 0;
-        case BSON_TYPE_UTF8:
-            return 0;
-        case BSON_TYPE_DOCUMENT:
-            return 0;
-        case BSON_TYPE_ARRAY:
-            return 0;
-        case BSON_TYPE_BINARY:
-            return 0;
-        case BSON_TYPE_OID:
-            return 0;
-        case BSON_TYPE_BOOL:
-            return 0;
-        case BSON_TYPE_DATE_TIME:
-            return 0;
+            double_val bson_iter_double(iter);
+            item = PyFloat_FromDouble(double_val);
+            break;
         case BSON_TYPE_INT32:
             int32_val = bson_iter_int32(iter);
             item = PyInt_FromLong(int32_val);
@@ -389,6 +426,13 @@ _cmonary_load_item (bson_iter_t    *iter,
             int64_val = bson_iter_int64(iter);
             item = PyInt_FromLong(int64_val);
             break;
+        case BSON_TYPE_UTF8:
+        case BSON_TYPE_DOCUMENT:
+        case BSON_TYPE_ARRAY:
+        case BSON_TYPE_BINARY:
+        case BSON_TYPE_OID:
+        case BSON_TYPE_BOOL:
+        case BSON_TYPE_DATE_TIME:
         default:
             return 0;
     }
@@ -413,7 +457,6 @@ _cmonary_load_item (bson_iter_t    *iter,
  *      @query: A Python dictionary representing the query.
  *      @select_fields: [optional] If true, select exactly the fields from the
  *      database that match the specified fields.
- *      TODO see the monary.py interface
  *
  *  Returns:
  *      A list of lists, each containing the desired data.
@@ -470,42 +513,20 @@ cmonary_collection_find (cmonary_t *self,
     }
 
     // Convert dictionary into raw bytes
-    // TODO
+    // TODO Steal PyMongo's BSON code
 
     // Build BSON query data
 }
 
-static PyTypeObject monary_type_t = {
-    PyObject_HEAD_INIT(NULL)
-    0,                         /*ob_size*/
-    "monary.Monary",             /*tp_name*/
-    sizeof(monary_MonaryObject), /*tp_basicsize*/
-    0,                         /*tp_itemsize*/
-    0,                         /*tp_dealloc*/
-    0,                         /*tp_print*/
-    0,                         /*tp_getattr*/
-    0,                         /*tp_setattr*/
-    0,                         /*tp_compare*/
-    0,                         /*tp_repr*/
-    0,                         /*tp_as_number*/
-    0,                         /*tp_as_sequence*/
-    0,                         /*tp_as_mapping*/
-    0,                         /*tp_hash */
-    0,                         /*tp_call*/
-    0,                         /*tp_str*/
-    0,                         /*tp_getattro*/
-    0,                         /*tp_setattro*/
-    0,                         /*tp_as_buffer*/
-    Py_TPFLAGS_DEFAULT,        /*tp_flags*/
-    "A Monary object.",           /* tp_doc */
-};
-
-static PyMethodDef monary_methods[] = {
-    {NULL}
-};
-
+/*
+ *-------------------------------------------------------------------------
+ * cmonary_init --
+ *
+ *      Initializes the module.
+ *-------------------------------------------------------------------------
+ */
 PyMODINIT_FUNC
-monary_init (void) 
+cmonary_init (void) 
 {
     PyObject* m;
 
@@ -514,7 +535,7 @@ monary_init (void)
         return;
 
     m = Py_InitModule3("monary", monary_methods,
-                       "Monary provides high-performance queries from MongoDB.");
+                       "Performs blazingly-fast reads from MongoDB.");
 
     Py_INCREF(&monary_type_t);
     PyModule_AddObject(m, "Monary", (PyObject *) &monary_type_t);
