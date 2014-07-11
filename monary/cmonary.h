@@ -1,6 +1,10 @@
 #ifndef CMONARYMODULE_H
 #define CMONARYMODULE_H
 
+#ifndef PyMODINIT_FUNC
+#define PyMODINIT_FUNC void
+#endif
+
 /*
  *-------------------------------------------------------------------------
  * cmonary_t --

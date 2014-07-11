@@ -115,8 +115,70 @@ cmonary_init (cmonary_t *self,      /* IN */
     return 0;
 }
 
+/*
+ *-------------------------------------------------------------------------
+ * cmonary_collection_count --
+ *
+ *      Performs a count query on a MongoDB collection.
+ *
+ * Python Parameters:
+ *      @db: The name of the database to access.
+ *      @coll: The name of the collection to access.
+ *      @query: A Python dictionary representing the query.
+ *
+ * Returns:
+ *      An integer indicating the number of results in the database that match
+ *      the given query. If an error occurs, -1 is returned.
+ *  
+ * Side effects:
+ *      This performs a count query on MongoDB so network traffic costs are
+ *      incurred.
+ *-------------------------------------------------------------------------
+ */
 static PyObject *
-cmonary_easy_query (cmonary_t *self)
+cmonary_collection_count (cmonary_t *self)
+{
+    PyObject      *query_dict;
+    bson_t         query_bson;
+    const char    *coll;
+    const char    *db;
+    const uint8_t *query;
+    int32_t        query_size;
+    
+    if (!PyArg_ParseTuple(args,
+                          "ssO!",
+                          &db,
+                          &coll,
+                          &PyDict_Type,
+                          &query_dict)) {
+        return -1;
+    }
+
+    // Sanity checks
+    if (!db) {
+        PyErr_SetString(PyExc_ValueError, "db name cannot be empty");
+        return -1;
+    }
+    else if (!coll) {
+        PyErr_SetString(PyExc_ValueError, "collection name cannot be empty");
+        return -1;
+    }
+
+    // Convert dictionary into raw bytes
+    // TODO
+
+    // Build BSON query data
+}
+
+/*
+ *-------------------------------------------------------------------------
+ * cmonary_collection_demo_find --
+ *
+ *      Performs a demo query.
+ *-------------------------------------------------------------------------
+ */
+static PyObject *
+cmonary_collection_demo_find (cmonary_t *self)
 {
     uint8_t             *query;
     mongoc_cursor_t     *cursor;
@@ -148,6 +210,8 @@ cmonary_easy_query (cmonary_t *self)
         PyErr_SetString(PyExc_RuntimeError, "an error occurred with the query");
         return NULL;
     }
+
+    // TODO load query
 }
 
 /*
@@ -359,9 +423,9 @@ _cmonary_load_item (bson_iter_t    *iter,
  *-------------------------------------------------------------------------
  */
 static PyObject *
-cmonary_query (cmonary_t *self,
-               PyObject  *args,
-               PyObject  *kwargs)
+cmonary_collection_find (cmonary_t *self,
+                         PyObject  *args,
+                         PyObject  *kwargs)
 {
     PyObject        *query_dict;
     bool             select_fields;
@@ -411,7 +475,7 @@ cmonary_query (cmonary_t *self,
     // Build BSON query data
 }
 
-static PyTypeObject monary_MonaryType = {
+static PyTypeObject monary_type_t = {
     PyObject_HEAD_INIT(NULL)
     0,                         /*ob_size*/
     "monary.Monary",             /*tp_name*/
@@ -440,48 +504,18 @@ static PyMethodDef monary_methods[] = {
     {NULL}
 };
 
-void
+PyMODINIT_FUNC
 monary_init (void) 
 {
     PyObject* m;
 
-    monary_MonaryType.tp_new = PyType_GenericNew;
-    if (PyType_Ready(&monary_MonaryType) < 0)
+    monary_type_t.tp_new = PyType_GenericNew;
+    if (PyType_Ready(&monary_type_t) < 0)
         return;
 
     m = Py_InitModule3("monary", monary_methods,
                        "Monary provides high-performance queries from MongoDB.");
 
-    Py_INCREF(&monary_MonaryType);
-    PyModule_AddObject(m, "Monary", (PyObject *) &monary_MonaryType);
-}
-
-static PyObject *
-monary_connect (PyObject   *self,
-                const char *uri)
-{
-    mongoc_client_t* client;
-    if (!uri) {
-        Py_RETURN_NONE;
-    }
-    
-    
-}
-
-static PyObject *
-monary_query (PyObject *self, /* IN */
-              PyObject *args) /* IN */
-{
-    bool select_fields;
-    bson_t *fields_bson;
-    bson_t query_bson;
-    const uint8_t *query;
-    int32_t query_size;
-    mongoc_cursor_t *cursor;
-    uint32_t limit;
-    uint32_t offset;
-
-    if (!self->collection || !query) {
-        Py_RETURN_NONE;
-    }
+    Py_INCREF(&monary_type_t);
+    PyModule_AddObject(m, "Monary", (PyObject *) &monary_type_t);
 }
