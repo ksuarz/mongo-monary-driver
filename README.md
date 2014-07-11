@@ -1,5 +1,6 @@
 mongo-monary-driver
 ===================
+Blazingly-fast reads on MongoDB.
 
 About
 -----
@@ -11,8 +12,8 @@ This version of Monary is inspired by the original
 Beach](http://djcinnovations.com/).
 
 The original Monary is in beta and is being actively developed. This version is
-highly experimental and is in no way, shape or form ready to be used in a
-production environment.
+highly experimental and is not intended as a replacement. Do not use in
+production!
 
 Rationale
 ---------
@@ -32,8 +33,11 @@ Python list that stores the results.
 
 Support/Feedback
 ----------------
-This is still in development. Add an issue or submit a pull request if you'd
-like.
+Although there are no plans to actively develop this, feel free to add an issue
+or submit a pull request if you'd like. If you actually want to use Monary, you
+can download the official version [on PyPI](https://pypi.python.org/pypi/Monary)
+and see the original source [on
+BitBucket](https://bitbucket.org/djcbeach/monary).
 
 Installation
 ------------
